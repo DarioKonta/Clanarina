@@ -31,10 +31,5 @@ npx eas-cli@latest build -p android --profile preview
 ```
 Open the link from the build on each phone and install it (allow "install from unknown sources").
 
-## Push to GitLab (first time)
-1. Create an empty project on GitLab. Don't add a README.
-2. Run:
-   ```bash
-   git remote add origin https://gitlab.com/<user>/<project>.git
-   git push -u origin main
-   ```
+## Repository
+https://github.com/DarioKonta/Clanarina (public). The sync URL and secret key are never committed; they live only on the phones.
