@@ -44,7 +44,8 @@ _Last updated: 2026-11-07_
 - [x] Build the APK with EAS (`preview`); v1.0.0 = EAS build d1576f8e
 - [x] Public GitHub repo created and pushed: https://github.com/DarioKonta/Clanarina (GitHub chosen over GitLab for Obtainium)
 - [x] Obtainium updates: `npm run release` (scripts/release.mjs) builds on EAS and publishes the APK as a GitHub Release; eas.json uses remote auto-incremented versionCode
-- [ ] Test install + update through Obtainium on own phone
+- [x] Accent color picker (Podešavanja → Izgled), saved per phone in `meta.accent`; status colors stay fixed
+- [ ] Test install + update through Obtainium on own phone (v1.0.1 = first update)
 
 ## Open questions
 - Is 3.000 RSD the right default price? Do prices differ per member or group?

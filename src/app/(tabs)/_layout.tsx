@@ -3,7 +3,7 @@ import { Tabs } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { t } from '@/i18n/sr';
 import { SyncPill } from '@/ui/SyncPill';
-import { colors } from '@/ui/theme';
+import { colors, useAccent } from '@/ui/theme';
 
 type IconName = keyof typeof MaterialCommunityIcons.glyphMap;
 const icon = (name: IconName) => {
@@ -16,6 +16,7 @@ const icon = (name: IconName) => {
 export default function TabLayout() {
   // Edge-to-edge: leave room for Android's navigation buttons / gesture bar.
   const { bottom } = useSafeAreaInsets();
+  const accent = useAccent();
   return (
     <Tabs
       screenOptions={{
@@ -31,7 +32,7 @@ export default function TabLayout() {
           paddingBottom: bottom,
         },
         tabBarItemStyle: { paddingVertical: 6 },
-        tabBarActiveTintColor: colors.primary,
+        tabBarActiveTintColor: accent,
         tabBarInactiveTintColor: colors.textMuted,
         tabBarLabelStyle: { fontSize: 12, fontWeight: '600' },
         sceneStyle: { backgroundColor: colors.background },

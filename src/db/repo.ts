@@ -3,6 +3,7 @@ import { periodEnd } from '@/domain/dates';
 import { SORT_KEYS, type SortDir, type SortKey } from '@/domain/sort';
 import type { DateKey, Member, Membership } from '@/domain/types';
 import { useDataStore } from '@/state/store';
+import { DEFAULT_ACCENT, isAccentKey, type AccentKey } from '@/ui/theme';
 import type { SyncStore, TableName } from '@/sync/engine';
 import { db, getMeta, setMeta } from './database';
 
@@ -172,6 +173,16 @@ export async function getDefaultAmount(): Promise<number> {
 
 export async function setDefaultAmount(amount: number) {
   await setMeta('defaultAmount', String(amount));
+}
+
+/** Accent color (local to this phone, not synced). */
+export async function getAccent(): Promise<AccentKey> {
+  const v = await getMeta('accent');
+  return isAccentKey(v) ? v : DEFAULT_ACCENT;
+}
+
+export async function setAccent(accent: AccentKey) {
+  await setMeta('accent', accent);
 }
 
 /** Members list view preferences (local to this phone, not synced). */

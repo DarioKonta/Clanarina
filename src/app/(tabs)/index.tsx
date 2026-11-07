@@ -15,7 +15,7 @@ import { MemberTable } from '@/ui/MemberTable';
 import { OfflineBanner } from '@/ui/OfflineBanner';
 import { PaymentDialog } from '@/ui/PaymentDialog';
 import { StatusChip } from '@/ui/StatusChip';
-import { colors, statusColor } from '@/ui/theme';
+import { colors, statusColor, useAccent } from '@/ui/theme';
 
 type Filter = 'all' | MemberStatusKind | 'archived';
 
@@ -35,6 +35,7 @@ export default function MembersScreen() {
   const [paying, setPaying] = useState<{ member: Member; membership: Membership } | null>(null);
   const [prefs, setPrefs] = useState<ListPrefs>(DEFAULT_LIST_PREFS);
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
+  const accent = useAccent();
 
   useEffect(() => {
     void getListPrefs().then(setPrefs);
@@ -116,7 +117,7 @@ export default function MembersScreen() {
                 <Menu.Item
                   key={key}
                   title={t.list.sortOptions[key]}
-                  titleStyle={active ? { color: colors.primary, fontWeight: '700' } : undefined}
+                  titleStyle={active ? { color: accent, fontWeight: '700' } : undefined}
                   trailingIcon={active ? (prefs.sortDir === 'asc' ? 'arrow-up' : 'arrow-down') : undefined}
                   accessibilityLabel={
                     active
@@ -146,7 +147,7 @@ export default function MembersScreen() {
               selected={filter === f.key}
               onPress={() => setFilter(f.key)}
               showSelectedOverlay
-              style={filter === f.key ? styles.chipActive : styles.chip}
+              style={filter === f.key ? { backgroundColor: accent + '40' } : styles.chip}
             >
               {f.label}
             </Chip>
@@ -176,7 +177,7 @@ export default function MembersScreen() {
       <FAB
         icon="plus"
         label={t.members.newMember}
-        style={styles.fab}
+        style={[styles.fab, { backgroundColor: accent }]}
         color={colors.onPrimary}
         onPress={() => router.push('/clan/uredi')}
       />
@@ -233,7 +234,6 @@ const styles = StyleSheet.create({
   search: { flex: 1, backgroundColor: colors.surface, borderRadius: 16, height: 48 },
   chips: { gap: 8, paddingBottom: 8 },
   chip: { backgroundColor: colors.surface },
-  chipActive: { backgroundColor: colors.primary + '40' },
   list: { padding: 16, paddingTop: 4, paddingBottom: 96, gap: 10 },
   card: {
     flexDirection: 'row',
@@ -246,5 +246,5 @@ const styles = StyleSheet.create({
   },
   cardBody: { flex: 1, gap: 6 },
   payBtn: { height: 40 },
-  fab: { position: 'absolute', right: 16, bottom: 16, backgroundColor: colors.primary },
+  fab: { position: 'absolute', right: 16, bottom: 16 },
 });

@@ -94,9 +94,9 @@ const styles = StyleSheet.create({
   summary: {
     padding: 20,
     borderRadius: 16,
-    backgroundColor: colors.primary + '22',
+    backgroundColor: colors.owes + '22',
     borderWidth: 1,
-    borderColor: colors.primary + '55',
+    borderColor: colors.owes + '55',
     marginBottom: 6,
     gap: 2,
   },

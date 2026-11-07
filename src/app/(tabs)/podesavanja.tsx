@@ -1,16 +1,17 @@
 import Constants from 'expo-constants';
 import { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Button, HelperText, Snackbar, Text, TextInput } from 'react-native-paper';
 import { formatTimestamp } from '@/domain/format';
 import { parseAmount } from '@/domain/validation';
-import { getDefaultAmount, setDefaultAmount } from '@/db/repo';
+import { getDefaultAmount, setAccent, setDefaultAmount } from '@/db/repo';
 import { t } from '@/i18n/sr';
-import { useSyncStore } from '@/state/store';
+import { useSyncStore, useUiStore } from '@/state/store';
 import { appsScriptTransport } from '@/sync/client';
 import { refreshSyncInfo, syncNow } from '@/sync/service';
 import { isConfigured, loadSyncSettings, saveSyncSettings } from '@/sync/settings';
-import { colors } from '@/ui/theme';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import { ACCENT_KEYS, ACCENTS, colors, useAccent, type AccentKey } from '@/ui/theme';
 
 export default function SettingsScreen() {
   const { phase, lastSyncAt, pending, error } = useSyncStore();
@@ -125,6 +126,10 @@ export default function SettingsScreen() {
           />
         </Section>
 
+        <Section title={t.settings.appearanceSection}>
+          <AccentPicker />
+        </Section>
+
         <Section title={t.settings.aboutSection}>
           <Text variant="bodyMedium" style={styles.muted}>
             {t.settings.about}
@@ -141,10 +146,41 @@ export default function SettingsScreen() {
   );
 }
 
+function AccentPicker() {
+  const current = useUiStore((s) => s.accent);
+  const pick = (key: AccentKey) => {
+    useUiStore.getState().setAccent(key);
+    void setAccent(key);
+  };
+  return (
+    <View style={{ gap: 10 }}>
+      <Text style={styles.muted}>{t.settings.accent}</Text>
+      <View style={styles.swatches}>
+        {ACCENT_KEYS.map((key) => {
+          const selected = key === current;
+          return (
+            <Pressable
+              key={key}
+              onPress={() => pick(key)}
+              accessibilityRole="radio"
+              accessibilityState={{ selected }}
+              accessibilityLabel={t.settings.accentNames[key]}
+              style={[styles.swatch, { backgroundColor: ACCENTS[key] }, selected && styles.swatchSelected]}
+            >
+              {selected ? <MaterialCommunityIcons name="check" size={26} color={colors.onPrimary} /> : null}
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  const accent = useAccent();
   return (
     <View style={styles.section}>
-      <Text variant="titleSmall" style={styles.sectionTitle}>
+      <Text variant="titleSmall" style={[styles.sectionTitle, { color: accent }]}>
         {title.toUpperCase()}
       </Text>
       {children}
@@ -164,7 +200,10 @@ function Row({ label, value }: { label: string; value: string }) {
 const styles = StyleSheet.create({
   content: { padding: 16, gap: 24, paddingBottom: 48 },
   section: { gap: 10 },
-  sectionTitle: { color: colors.primary, letterSpacing: 1 },
+  sectionTitle: { letterSpacing: 1 },
+  swatches: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  swatch: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+  swatchSelected: { borderWidth: 3, borderColor: colors.text },
   statusBox: { padding: 14, borderRadius: 16, backgroundColor: colors.surface, gap: 8 },
   row: { flexDirection: 'row', justifyContent: 'space-between' },
   muted: { color: colors.textMuted },

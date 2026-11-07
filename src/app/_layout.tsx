@@ -1,15 +1,16 @@
 import NetInfo from '@react-native-community/netinfo';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AppState, View } from 'react-native';
 import { ActivityIndicator, PaperProvider, Text } from 'react-native-paper';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { migrate } from '@/db/database';
+import { getAccent } from '@/db/repo';
 import { t } from '@/i18n/sr';
-import { useDataStore, useSyncStore } from '@/state/store';
+import { useDataStore, useSyncStore, useUiStore } from '@/state/store';
 import { refreshSyncInfo, scheduleSync, syncNow } from '@/sync/service';
-import { colors, theme } from '@/ui/theme';
+import { ACCENTS, colors, makeTheme } from '@/ui/theme';
 
 function useSyncTriggers(ready: boolean) {
   useEffect(() => {
@@ -52,11 +53,17 @@ export default function RootLayout() {
 
   useEffect(() => {
     migrate()
-      .then(() => setReady(true))
+      .then(getAccent)
+      .then((accent) => {
+        useUiStore.getState().setAccent(accent);
+        setReady(true);
+      })
       .catch((e) => setError(String(e)));
   }, []);
 
   useSyncTriggers(ready);
+  const accent = useUiStore((s) => s.accent);
+  const theme = useMemo(() => makeTheme(ACCENTS[accent]), [accent]);
 
   return (
     <SafeAreaProvider>

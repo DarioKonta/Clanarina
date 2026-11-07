@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { DEFAULT_ACCENT, type AccentKey } from '@/ui/theme';
 
 /** Bumped on every local or synced data change so screens know to reload. */
 interface DataState {
@@ -36,4 +37,15 @@ export const useSyncStore = create<SyncState>((set) => ({
   error: null,
   configured: false,
   set: (patch) => set(patch),
+}));
+
+/** Look & feel chosen on this phone. */
+interface UiState {
+  accent: AccentKey;
+  setAccent: (accent: AccentKey) => void;
+}
+
+export const useUiStore = create<UiState>((set) => ({
+  accent: DEFAULT_ACCENT,
+  setAccent: (accent) => set({ accent }),
 }));

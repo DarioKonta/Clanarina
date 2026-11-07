@@ -5,7 +5,7 @@ import { Text } from 'react-native-paper';
 import { formatDayMonth, formatMoney, fullName } from '@/domain/format';
 import { validUntil, type SortDir, type SortKey, type Sortable } from '@/domain/sort';
 import { t } from '@/i18n/sr';
-import { colors, statusColor } from './theme';
+import { colors, statusColor, useAccent } from './theme';
 
 interface Props<T extends Sortable> {
   items: T[];
@@ -95,6 +95,7 @@ function HeaderCell({
   onSort: (key: SortKey) => void;
 }) {
   const active = sortKey === k;
+  const accent = useAccent();
   return (
     <Pressable
       onPress={() => onSort(k)}
@@ -102,11 +103,11 @@ function HeaderCell({
       accessibilityRole="button"
       style={[style, styles.headerCell, alignEnd && { justifyContent: 'flex-end' }]}
     >
-      <Text style={[styles.headerText, active && { color: colors.primary }]} numberOfLines={1}>
+      <Text style={[styles.headerText, active && { color: accent }]} numberOfLines={1}>
         {label}
       </Text>
       {active ? (
-        <MaterialCommunityIcons name={sortDir === 'asc' ? 'arrow-up' : 'arrow-down'} size={14} color={colors.primary} />
+        <MaterialCommunityIcons name={sortDir === 'asc' ? 'arrow-up' : 'arrow-down'} size={14} color={accent} />
       ) : null}
     </Pressable>
   );
