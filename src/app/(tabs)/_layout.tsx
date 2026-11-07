@@ -34,12 +34,15 @@ export default function TabLayout() {
         tabBarItemStyle: { paddingVertical: 6 },
         tabBarActiveTintColor: accent,
         tabBarInactiveTintColor: colors.textMuted,
-        tabBarLabelStyle: { fontSize: 12, fontWeight: '600' },
+        // Five tabs: slightly smaller labels so "Podešavanja" fits on narrow phones.
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
         sceneStyle: { backgroundColor: colors.background },
       }}
     >
       <Tabs.Screen name="index" options={{ title: t.tabs.members, tabBarIcon: icon('account-group') }} />
       <Tabs.Screen name="dugovanja" options={{ title: t.tabs.debts, tabBarIcon: icon('cash-clock') }} />
+      <Tabs.Screen name="prisustvo" options={{ title: t.tabs.attendance, tabBarIcon: icon('clipboard-check-outline') }} />
+      <Tabs.Screen name="pregled" options={{ title: t.tabs.overview, tabBarIcon: icon('chart-bar') }} />
       <Tabs.Screen name="podesavanja" options={{ title: t.tabs.settings, tabBarIcon: icon('cog') }} />
     </Tabs>
   );

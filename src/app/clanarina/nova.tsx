@@ -4,6 +4,7 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 import { Button, HelperText, Menu, SegmentedButtons, Switch, Text, TextInput } from 'react-native-paper';
 import { periodEnd, todayKey } from '@/domain/dates';
 import { formatPeriod, fullName } from '@/domain/format';
+import { suggestAmount } from '@/domain/pricing';
 import { suggestNextPeriodStart } from '@/domain/status';
 import type { Member } from '@/domain/types';
 import { hasErrors, parseAmount, validateMembership, type MembershipInput } from '@/domain/validation';
@@ -12,7 +13,7 @@ import { t } from '@/i18n/sr';
 import { DateField } from '@/ui/DateField';
 import { colors } from '@/ui/theme';
 
-const DURATIONS = [1, 2, 3, 6];
+const DURATIONS = [1, 2, 3, 6, 12];
 
 export default function NewMembershipScreen() {
   const params = useLocalSearchParams<{ memberId?: string; paid?: string }>();
@@ -29,10 +30,13 @@ export default function NewMembershipScreen() {
   });
   const [errors, setErrors] = useState<Partial<Record<keyof MembershipInput, string>>>({});
   const [saving, setSaving] = useState(false);
+  const [defaultAmount, setDefaultAmountState] = useState<number | null>(null);
+  /** Once the amount is typed by hand, stop recalculating it. */
+  const [amountEdited, setAmountEdited] = useState(false);
 
   useEffect(() => {
     listMembers().then((all) => setMembers(all.filter((m) => m.active)));
-    getDefaultAmount().then((a) => setForm((f) => (f.amount ? f : { ...f, amount: String(a) })));
+    getDefaultAmount().then(setDefaultAmountState);
   }, []);
 
   // Suggest a start date that continues the member's previous period.
@@ -44,11 +48,16 @@ export default function NewMembershipScreen() {
   }, [form.memberId]);
 
   const selected = members.find((m) => m.id === form.memberId);
+
+  // Amount follows the member's price (or the default) × months until typed by hand.
+  const autoAmount =
+    defaultAmount === null ? '' : String(suggestAmount(selected?.price ?? null, defaultAmount, form.months));
+  const amount = amountEdited ? form.amount : autoAmount;
   const end = useMemo(() => periodEnd(form.periodStart, form.months), [form.periodStart, form.months]);
   const set = <K extends keyof MembershipInput>(k: K, v: MembershipInput[K]) => setForm((f) => ({ ...f, [k]: v }));
 
   const save = async () => {
-    const e = validateMembership(form);
+    const e = validateMembership({ ...form, amount });
     setErrors(e);
     if (hasErrors(e)) return;
     setSaving(true);
@@ -57,7 +66,7 @@ export default function NewMembershipScreen() {
         memberId: form.memberId,
         periodStart: form.periodStart,
         months: form.months,
-        amount: parseAmount(form.amount)!,
+        amount: parseAmount(amount)!,
         paidAt: form.paidNow ? form.paidAt : null,
         note: form.note.trim() || null,
       });
@@ -127,8 +136,11 @@ export default function NewMembershipScreen() {
         <TextInput
           mode="outlined"
           label={t.membership.amount}
-          value={form.amount}
-          onChangeText={(v) => set('amount', v)}
+          value={amount}
+          onChangeText={(v) => {
+            setAmountEdited(true);
+            set('amount', v);
+          }}
           keyboardType="number-pad"
           error={!!errors.amount}
         />

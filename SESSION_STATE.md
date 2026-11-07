@@ -47,6 +47,18 @@ _Last updated: 2026-11-07_
 - [x] Accent color picker (Podešavanja → Izgled), saved per phone in `meta.accent`; status colors stay fixed
 - [x] v1.0.1 released (accent colors)
 - [x] In-app Google Sheets guide (`src/app/uputstvo.tsx`, text in `t.guide`), opened from Podešavanja
+- [x] Big feature batch (2026-11-07, not yet released):
+  - Reminders (SMS / share sheet) on Dugovanja + member detail
+  - Pregled tab (monthly money in, due/paid, total debt, 6-month chart)
+  - Prisustvo tab (attendance per day, group filter) + per-member stats
+  - Member fields: group, own price, birthday (🎂 + age), member since; group filter on Članovi
+  - New membership: 12 months option, amount = price × months
+  - Undo snackbar (payment, unpay, delete membership/member, archive)
+  - Excel export (.xlsx via SheetJS 0.20.3 from cdn.sheetjs.com, expo-file-system + expo-sharing)
+  - App icon (boxing glove, MDI) + dark splash (expo-splash-screen)
+  - Sync schema 2: Code.gs header-driven columns, auto-adds missing ones, Prisustvo tab; app refuses older script (`outdated`)
+- [ ] User updates Code.gs in the Sheet (paste + Deploy → Manage deployments → New version)
+- [ ] Test the new features in Expo Go, then `npm run release -- minor` (v1.1.0)
 - [ ] Test install + update through Obtainium on own phone
 
 ## Open questions
@@ -62,5 +74,5 @@ _Last updated: 2026-11-07_
 - The default Expo icon and splash screen are still in place.
 
 ## Next step
-Check on the phone (Expo Go): tab bar no longer overlaps the system buttons; sort menu and table view on Članovi.
-Then: app icon/splash, then build the APK.
+1. Update Code.gs in the Google Sheet (new version deploy). 2. Test the new features in Expo Go.
+3. `npm run release -- minor` → v1.1.0. Icon/splash only show in the built APK, not in Expo Go.

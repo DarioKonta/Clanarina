@@ -1,18 +1,28 @@
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Alert, Linking, ScrollView, StyleSheet, View } from 'react-native';
 import { Avatar, Button, IconButton, Menu, Text } from 'react-native-paper';
-import { todayKey } from '@/domain/dates';
+import { countInMonth, lastAttended } from '@/domain/attendance';
+import { ageOn, isBirthday, monthOf, todayKey } from '@/domain/dates';
 import { formatDate, formatMoney, formatPeriod, fullName, initials } from '@/domain/format';
 import { membershipStatus } from '@/domain/status';
 import type { Membership } from '@/domain/types';
-import { deleteMembership, markUnpaid, updateMember } from '@/db/repo';
+import { deleteMember, deleteMembership, restoreMember, restoreMembership, setPayment, updateMember } from '@/db/repo';
 import { useMemberDetail } from '@/hooks/useData';
 import { t } from '@/i18n/sr';
+import { offerUndo } from '@/state/store';
 import { EmptyState } from '@/ui/EmptyState';
 import { PaymentDialog } from '@/ui/PaymentDialog';
+import { ReminderButton } from '@/ui/ReminderButton';
 import { Pill, StatusChip } from '@/ui/StatusChip';
 import { colors, statusColor } from '@/ui/theme';
+
+type IconName = keyof typeof MaterialCommunityIcons.glyphMap;
+interface Detail {
+  icon: IconName;
+  text: string;
+}
 
 export default function MemberDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -23,8 +33,25 @@ export default function MemberDetailScreen() {
   if (loading) return null;
   const member = data?.member;
   if (!member || member.deleted) return <EmptyState icon="account-question" title={t.members.notFound} />;
-  const { memberships, status } = data;
+  const { memberships, status, attendance } = data;
   const accent = statusColor[status.kind];
+  const today = todayKey();
+  const birthday = isBirthday(member.birthDate, today);
+  const last = lastAttended(attendance, member.id);
+  const details: Detail[] = ([
+    member.groupName ? { icon: 'account-group', text: member.groupName } : null,
+    member.price !== null ? { icon: 'cash', text: t.memberFields.ownPrice(formatMoney(member.price)) } : null,
+    member.birthDate
+      ? { icon: 'cake-variant', text: `${formatDate(member.birthDate)} · ${t.memberFields.age(ageOn(member.birthDate, today))}` }
+      : null,
+    member.joinedAt ? { icon: 'calendar-start', text: t.memberFields.memberSince(formatDate(member.joinedAt)) } : null,
+    {
+      icon: 'dumbbell',
+      text: `${t.attendance.thisMonth(countInMonth(attendance, member.id, monthOf(today)))} · ${
+        last ? t.attendance.last(formatDate(last)) : t.attendance.never
+      }`,
+    },
+  ] as (Detail | null)[]).filter((d): d is Detail => !!d);
 
   const confirmDelete = () =>
     Alert.alert(t.members.deleteConfirmTitle, t.members.deleteConfirmText, [
@@ -33,8 +60,8 @@ export default function MemberDetailScreen() {
         text: t.common.delete,
         style: 'destructive',
         onPress: async () => {
-          for (const m of memberships) await deleteMembership(m.id);
-          await updateMember(member.id, { deleted: true });
+          const ids = await deleteMember(member.id);
+          offerUndo(t.undo.memberDeleted, () => restoreMember(member.id, ids));
           router.back();
         },
       },
@@ -64,7 +91,11 @@ export default function MemberDetailScreen() {
                 title={member.active ? t.members.archive : t.members.unarchive}
                 onPress={() => {
                   setMenuOpen(false);
-                  void updateMember(member.id, { active: !member.active });
+                  const wasActive = member.active;
+                  void updateMember(member.id, { active: !wasActive });
+                  offerUndo(wasActive ? t.undo.archived : t.undo.unarchived, () =>
+                    updateMember(member.id, { active: wasActive }),
+                  );
                 }}
               />
               <Menu.Item
@@ -90,6 +121,34 @@ export default function MemberDetailScreen() {
             {!member.active ? <Pill color={colors.expired} label={t.members.archived} /> : null}
           </View>
         </View>
+
+        {birthday ? (
+          <View style={styles.birthday}>
+            <Text variant="titleMedium">{t.memberFields.birthdayToday}</Text>
+          </View>
+        ) : null}
+
+        <View style={styles.details}>
+          {details.map((d) => (
+            <View key={d.icon} style={styles.detailRow}>
+              <MaterialCommunityIcons name={d.icon} size={18} color={colors.textMuted} />
+              <Text variant="bodyMedium" style={{ flex: 1 }}>
+                {d.text}
+              </Text>
+            </View>
+          ))}
+        </View>
+
+        {status.kind === 'duguje' ? (
+          <View style={{ alignSelf: 'flex-start' }}>
+            <ReminderButton member={member} status={status} />
+            {!member.phone ? (
+              <Text variant="bodySmall" style={[styles.muted, { marginTop: 4 }]}>
+                {t.reminder.noPhone}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
 
         {member.phone || member.note ? (
           <View style={styles.info}>
@@ -172,7 +231,9 @@ function MembershipRow({ m, onPay }: { m: Membership; onPay: () => void }) {
             title={t.member.undoPayment}
             onPress={() => {
               setMenuOpen(false);
-              void markUnpaid(m.id);
+              const { id, paidAt, amount } = m;
+              void setPayment(id, null, amount);
+              offerUndo(t.undo.unpaid, () => setPayment(id, paidAt, amount));
             }}
           />
         ) : null}
@@ -183,7 +244,14 @@ function MembershipRow({ m, onPay }: { m: Membership; onPay: () => void }) {
             setMenuOpen(false);
             Alert.alert(t.member.deleteMembershipConfirm, formatPeriod(m.periodStart, m.periodEnd), [
               { text: t.common.cancel, style: 'cancel' },
-              { text: t.common.delete, style: 'destructive', onPress: () => void deleteMembership(m.id) },
+              {
+                text: t.common.delete,
+                style: 'destructive',
+                onPress: () => {
+                  void deleteMembership(m.id);
+                  offerUndo(t.undo.membershipDeleted, () => restoreMembership(m.id));
+                },
+              },
             ]);
           }}
         />
@@ -204,6 +272,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   info: { gap: 4 },
+  details: { gap: 10, padding: 14, borderRadius: 16, backgroundColor: colors.surface },
+  detailRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  birthday: {
+    padding: 14,
+    borderRadius: 16,
+    backgroundColor: colors.soon + '22',
+    borderWidth: 1,
+    borderColor: colors.soon + '66',
+  },
   muted: { color: colors.textMuted },
   bigBtn: { height: 52 },
   sectionTitle: { marginTop: 8 },

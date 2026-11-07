@@ -5,8 +5,9 @@ import { todayKey } from '@/domain/dates';
 import { formatPeriod, fullName } from '@/domain/format';
 import type { Member, Membership } from '@/domain/types';
 import { parseAmount } from '@/domain/validation';
-import { markPaid } from '@/db/repo';
+import { markPaid, setPayment } from '@/db/repo';
 import { t } from '@/i18n/sr';
+import { offerUndo } from '@/state/store';
 import { DateField } from './DateField';
 
 interface Props {
@@ -52,6 +53,8 @@ function PaymentForm({
     setSaving(true);
     try {
       await markPaid(membership.id, date, value);
+      const { id, amount: before } = membership;
+      offerUndo(t.undo.paid, () => setPayment(id, null, before));
       onDone();
     } finally {
       setSaving(false);

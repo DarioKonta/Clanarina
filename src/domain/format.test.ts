@@ -1,4 +1,4 @@
-import { formatMoney, formatDate, formatPeriod, fullName, initials } from './format';
+import { formatDate, formatMoney, formatMonth, formatMonthShort, formatPeriod, fullName, initials } from './format';
 
 describe('format', () => {
   test('formatMoney uses dot thousands separator and RSD', () => {
@@ -20,5 +20,13 @@ describe('format', () => {
     expect(fullName({ firstName: 'Marko', lastName: 'Petrović' })).toBe('Marko Petrović');
     expect(initials({ firstName: 'Marko', lastName: 'Petrović' })).toBe('MP');
     expect(initials({ firstName: 'ana', lastName: '' })).toBe('A');
+  });
+});
+
+describe('month names', () => {
+  test('formatMonth and formatMonthShort', () => {
+    expect(formatMonth('2026-11')).toBe('novembar 2026');
+    expect(formatMonth('2027-01')).toBe('januar 2027');
+    expect(formatMonthShort('2026-08')).toBe('avg');
   });
 });

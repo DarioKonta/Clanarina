@@ -4,28 +4,42 @@
  * Setup (once): open the Google Sheet → Extensions → Apps Script → paste this file →
  * run `setup` → copy the secret from the log → Deploy → New deployment → Web app
  * (Execute as: Me, Who has access: Anyone) → copy the /exec URL into the app.
+ * Updating: paste the new file → Deploy → Manage deployments → ✏️ → New version → Deploy.
  * Full steps: apps-script/README.md
  *
  * API (POST, JSON body):
  *   { action: "ping", secret }
- *   { action: "push", secret, members: [...], memberships: [...] }
+ *   { action: "push", secret, members: [...], memberships: [...], attendance: [...] }
  *   { action: "pull", secret, since: ISO | null }
+ * Every response carries `schema` so the app can tell an outdated script apart.
  * Every row keeps `syncedAt` = server time of its last write; `pull` returns rows
  * with syncedAt > since. Conflicts: last write wins by `updatedAt`.
+ *
+ * Columns are matched by the header names in row 1, so their order doesn't matter.
+ * Missing columns (e.g. after an app update) are appended automatically.
  */
+
+var SCHEMA = 2;
 
 var TABLES = {
   members: {
     sheet: 'Clanovi',
-    columns: ['id', 'firstName', 'lastName', 'phone', 'note', 'active', 'createdAt', 'updatedAt', 'deleted', 'syncedAt'],
+    columns: [
+      'id', 'firstName', 'lastName', 'phone', 'note', 'groupName', 'price', 'birthDate', 'joinedAt',
+      'active', 'createdAt', 'updatedAt', 'deleted', 'syncedAt',
+    ],
   },
   memberships: {
     sheet: 'Clanarine',
     columns: ['id', 'memberId', 'periodStart', 'months', 'periodEnd', 'amount', 'paidAt', 'note', 'createdAt', 'updatedAt', 'deleted', 'syncedAt'],
   },
+  attendance: {
+    sheet: 'Prisustvo',
+    columns: ['id', 'memberId', 'date', 'createdAt', 'updatedAt', 'deleted', 'syncedAt'],
+  },
 };
 
-var DATE_COLUMNS = { periodStart: true, periodEnd: true, paidAt: true };
+var DATE_COLUMNS = { periodStart: true, periodEnd: true, paidAt: true, birthDate: true, joinedAt: true, date: true };
 
 function doPost(e) {
   var body;
@@ -41,19 +55,15 @@ function doPost(e) {
   if (!lock.tryLock(20000)) return json({ ok: false, error: 'busy' });
   try {
     var serverTime = new Date().toISOString();
-    if (body.action === 'ping') return json({ ok: true, serverTime: serverTime });
+    if (body.action === 'ping') return json({ ok: true, serverTime: serverTime, schema: SCHEMA });
     if (body.action === 'push') {
-      upsert('members', body.members || [], serverTime);
-      upsert('memberships', body.memberships || [], serverTime);
-      return json({ ok: true, serverTime: serverTime });
+      for (var table in TABLES) upsert(table, body[table] || [], serverTime);
+      return json({ ok: true, serverTime: serverTime, schema: SCHEMA });
     }
     if (body.action === 'pull') {
-      return json({
-        ok: true,
-        serverTime: serverTime,
-        members: readSince('members', body.since),
-        memberships: readSince('memberships', body.since),
-      });
+      var out = { ok: true, serverTime: serverTime, schema: SCHEMA };
+      for (var t in TABLES) out[t] = readSince(t, body.since);
+      return json(out);
     }
     return json({ ok: false, error: 'unknown_action' });
   } catch (err) {
@@ -65,7 +75,7 @@ function doPost(e) {
 
 /** Health check in a browser: shows that the deployment is reachable. */
 function doGet() {
-  return json({ ok: true, app: 'clanarina' });
+  return json({ ok: true, app: 'clanarina', schema: SCHEMA });
 }
 
 // ---------- helpers ----------
@@ -74,35 +84,51 @@ function json(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
+/**
+ * Returns the sheet and its header (column names in sheet order). Creates the
+ * sheet if needed and appends any expected column that is missing.
+ */
 function getSheet(table) {
   var def = TABLES[table];
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sh = ss.getSheetByName(def.sheet);
-  if (!sh) {
-    sh = ss.insertSheet(def.sheet);
+  if (!sh) sh = ss.insertSheet(def.sheet);
+
+  var header = [];
+  if (sh.getLastColumn() > 0 && sh.getLastRow() > 0) {
+    header = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(function (h) {
+      return String(h).trim();
+    });
+    while (header.length && header[header.length - 1] === '') header.pop();
   }
-  if (sh.getLastRow() === 0) {
-    sh.getRange(1, 1, 1, def.columns.length).setValues([def.columns]).setFontWeight('bold');
+  var missing = def.columns.filter(function (c) {
+    return header.indexOf(c) < 0;
+  });
+  if (missing.length) {
+    sh.getRange(1, header.length + 1, 1, missing.length).setValues([missing]).setFontWeight('bold');
+    header = header.concat(missing);
     sh.setFrozenRows(1);
   }
   // Plain text everywhere so Sheets never turns dates/ids into other types.
-  sh.getRange(1, 1, sh.getMaxRows(), def.columns.length).setNumberFormat('@');
-  return sh;
+  sh.getRange(1, 1, sh.getMaxRows(), header.length).setNumberFormat('@');
+  return { sheet: sh, header: header };
 }
 
-/** Reads the sheet into { header, rows: [{ obj, rowIndex }] }. */
+/** Reads the sheet into { sheet, header, rows: [{ obj, rowIndex }] }. */
 function readAll(table) {
-  var def = TABLES[table];
-  var sh = getSheet(table);
+  var s = getSheet(table);
+  var sh = s.sheet;
+  var header = s.header;
   var last = sh.getLastRow();
   var rows = [];
   if (last >= 2) {
-    var values = sh.getRange(2, 1, last - 1, def.columns.length).getValues();
+    var values = sh.getRange(2, 1, last - 1, header.length).getValues();
     var tz = Session.getScriptTimeZone();
     for (var i = 0; i < values.length; i++) {
       var obj = {};
-      for (var c = 0; c < def.columns.length; c++) {
-        var col = def.columns[c];
+      for (var c = 0; c < header.length; c++) {
+        var col = header[c];
+        if (!col) continue;
         var v = values[i][c];
         if (v instanceof Date) {
           v = DATE_COLUMNS[col] ? Utilities.formatDate(v, tz, 'yyyy-MM-dd') : v.toISOString();
@@ -112,11 +138,13 @@ function readAll(table) {
       if (obj.id) rows.push({ obj: obj, rowIndex: i + 2 });
     }
   }
-  return { sheet: sh, rows: rows };
+  return { sheet: sh, header: header, rows: rows };
 }
 
-function toCells(table, obj) {
-  return TABLES[table].columns.map(function (col) {
+/** Row values in sheet order. Columns the app doesn't know keep their old value. */
+function toCells(header, obj, previous) {
+  return header.map(function (col, i) {
+    if (!col || !(col in obj)) return previous ? previous[i] : '';
     var v = obj[col];
     if (v === null || v === undefined) return '';
     if (v === true) return '1';
@@ -128,6 +156,7 @@ function toCells(table, obj) {
 function upsert(table, incoming, serverTime) {
   if (!incoming.length) return;
   var data = readAll(table);
+  var header = data.header;
   var byId = {};
   data.rows.forEach(function (r) {
     byId[r.obj.id] = r;
@@ -140,17 +169,18 @@ function upsert(table, incoming, serverTime) {
     for (var k in row) rec[k] = row[k];
     rec.syncedAt = serverTime;
     if (!existing) {
-      appends.push(toCells(table, rec));
+      appends.push(toCells(header, rec, null));
       byId[row.id] = { obj: rec, rowIndex: -1 };
     } else if (existing.rowIndex > 0 && String(row.updatedAt) > String(existing.obj.updatedAt)) {
-      data.sheet.getRange(existing.rowIndex, 1, 1, TABLES[table].columns.length).setValues([toCells(table, rec)]);
+      var range = data.sheet.getRange(existing.rowIndex, 1, 1, header.length);
+      range.setValues([toCells(header, rec, range.getValues()[0])]);
       existing.obj = rec;
     }
     // Otherwise the sheet already has a newer version; the client gets it on pull.
   });
   if (appends.length) {
     var start = data.sheet.getLastRow() + 1;
-    data.sheet.getRange(start, 1, appends.length, TABLES[table].columns.length).setValues(appends);
+    data.sheet.getRange(start, 1, appends.length, header.length).setValues(appends);
   }
 }
 
@@ -175,23 +205,32 @@ function onEdit(e) {
   var table = null;
   for (var key in TABLES) if (TABLES[key].sheet === sh.getName()) table = key;
   if (!table) return;
-  var cols = TABLES[table].columns;
+  if (e.range.getRow() === 1 && e.range.getLastRow() === 1) return; // header edit
+  var header = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(function (h) {
+    return String(h).trim();
+  });
+  var idx = function (col) {
+    return header.indexOf(col);
+  };
   var now = new Date().toISOString();
   var first = Math.max(e.range.getRow(), 2);
   var last = e.range.getLastRow();
   for (var r = first; r <= last; r++) {
-    var values = sh.getRange(r, 1, 1, cols.length).getValues()[0];
+    var values = sh.getRange(r, 1, 1, header.length).getValues()[0];
     var isEmpty = values.every(function (v) {
       return v === '' || v === null;
     });
     if (isEmpty) continue;
     var set = function (col, value) {
-      sh.getRange(r, cols.indexOf(col) + 1).setValue(value);
+      if (idx(col) >= 0) sh.getRange(r, idx(col) + 1).setValue(value);
     };
-    if (!values[cols.indexOf('id')]) set('id', Utilities.getUuid());
-    if (!values[cols.indexOf('createdAt')]) set('createdAt', now);
-    if (table === 'members' && values[cols.indexOf('active')] === '') set('active', '1');
-    if (values[cols.indexOf('deleted')] === '') set('deleted', '0');
+    var get = function (col) {
+      return idx(col) >= 0 ? values[idx(col)] : '';
+    };
+    if (!get('id')) set('id', Utilities.getUuid());
+    if (!get('createdAt')) set('createdAt', now);
+    if (table === 'members' && get('active') === '') set('active', '1');
+    if (get('deleted') === '') set('deleted', '0');
     set('updatedAt', now);
     set('syncedAt', now);
   }
@@ -199,10 +238,9 @@ function onEdit(e) {
 
 // ---------- one-time setup ----------
 
-/** Run once from the editor: creates tabs/headers and a secret (see Logs). */
+/** Run once from the editor: creates tabs/headers and a secret (see Logs). Safe to run again. */
 function setup() {
-  getSheet('members');
-  getSheet('memberships');
+  for (var table in TABLES) getSheet(table);
   var props = PropertiesService.getScriptProperties();
   var secret = props.getProperty('SECRET');
   if (!secret) {

@@ -39,6 +39,23 @@ export const useSyncStore = create<SyncState>((set) => ({
   set: (patch) => set(patch),
 }));
 
+/** The last undoable action, shown as a snackbar with "Poništi". */
+interface UndoState {
+  item: { id: number; message: string; undo: () => Promise<void> | void } | null;
+  offer: (message: string, undo: () => Promise<void> | void) => void;
+  clear: () => void;
+}
+
+export const useUndoStore = create<UndoState>((set) => ({
+  item: null,
+  offer: (message, undo) => set({ item: { id: Date.now(), message, undo } }),
+  clear: () => set({ item: null }),
+}));
+
+/** Shows "message · Poništi" for a few seconds. */
+export const offerUndo = (message: string, undo: () => Promise<void> | void) =>
+  useUndoStore.getState().offer(message, undo);
+
 /** Look & feel chosen on this phone. */
 interface UiState {
   accent: AccentKey;

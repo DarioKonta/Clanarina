@@ -14,7 +14,7 @@
     "android": {
       "package": "rs.kickbox.clanarina",
       "adaptiveIcon": {
-        "backgroundColor": "#121212",
+        "backgroundColor": "#E53935",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -30,7 +30,17 @@
       "expo-sqlite",
       "expo-secure-store",
       "@react-native-community/datetimepicker",
-      "expo-font"
+      "expo-font",
+      "expo-sharing",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 160,
+          "resizeMode": "contain",
+          "backgroundColor": "#121212"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

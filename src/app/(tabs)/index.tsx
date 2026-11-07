@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Avatar, Button, Chip, FAB, IconButton, Menu, Searchbar, Text } from 'react-native-paper';
 import { DEFAULT_LIST_PREFS, getListPrefs, setListPrefs, type ListPrefs } from '@/db/repo';
-import { todayKey } from '@/domain/dates';
+import { isBirthday, todayKey } from '@/domain/dates';
 import { fullName, initials, searchKey } from '@/domain/format';
 import { DEFAULT_SORT_DIR, SORT_KEYS, sortMembers, type SortKey } from '@/domain/sort';
 import { oldestUnpaid } from '@/domain/status';
@@ -32,6 +32,7 @@ export default function MembersScreen() {
   const { data, loading } = useMembersWithStatus();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
+  const [group, setGroup] = useState<string | null>(null);
   const [paying, setPaying] = useState<{ member: Member; membership: Membership } | null>(null);
   const [prefs, setPrefs] = useState<ListPrefs>(DEFAULT_LIST_PREFS);
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
@@ -65,11 +66,13 @@ export default function MembersScreen() {
         if (filter === 'isteklo' && !(status.kind === 'isteklo' || status.kind === 'bez_clanarine')) return false;
         if (filter !== 'all' && filter !== 'isteklo' && status.kind !== filter) return false;
       }
+      if (group && member.groupName?.trim() !== group) return false;
       if (!q) return true;
       return searchKey(`${fullName(member)} ${member.phone ?? ''}`).includes(q);
     });
     return sortMembers(filtered, prefs.sortKey, prefs.sortDir);
-  }, [data, query, filter, prefs.sortKey, prefs.sortDir]);
+  }, [data, query, filter, group, prefs.sortKey, prefs.sortDir]);
+  const groups = data?.groups ?? [];
 
   const onQuickPay = (item: MemberWithStatus) => {
     const unpaid = oldestUnpaid(item.memberships, todayKey());
@@ -153,6 +156,23 @@ export default function MembersScreen() {
             </Chip>
           ))}
         </ScrollView>
+        {groups.length > 0 ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+            {[null, ...groups].map((g) => (
+              <Chip
+                key={g ?? '*'}
+                compact
+                icon={g ? 'account-group' : undefined}
+                selected={group === g}
+                onPress={() => setGroup(g)}
+                showSelectedOverlay
+                style={group === g ? { backgroundColor: accent + '40' } : styles.chip}
+              >
+                {g ?? t.memberFields.allGroups}
+              </Chip>
+            ))}
+          </ScrollView>
+        ) : null}
       </View>
 
       {prefs.view === 'table' ? (
@@ -209,7 +229,13 @@ function MemberCard({ item, onQuickPay }: { item: MemberWithStatus; onQuickPay: 
       <View style={styles.cardBody}>
         <Text variant="titleMedium" numberOfLines={1}>
           {fullName(member)}
+          {isBirthday(member.birthDate, todayKey()) ? ' 🎂' : ''}
         </Text>
+        {member.groupName ? (
+          <Text variant="bodySmall" style={{ color: colors.textMuted }} numberOfLines={1}>
+            {member.groupName}
+          </Text>
+        ) : null}
         <StatusChip status={status} />
       </View>
       {member.active ? (

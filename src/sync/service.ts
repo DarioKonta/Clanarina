@@ -24,6 +24,7 @@ function errorMessage(e: unknown): string {
     if (e.code === 'unauthorized') return t.sync.errUnauthorized;
     if (e.code === 'network') return t.sync.errNetwork;
     if (e.code === 'not_configured') return t.sync.errNotConfigured;
+    if (e.code === 'outdated') return t.sync.errOutdated;
     return `${t.sync.errServer} (${e.message})`;
   }
   return t.sync.errServer;

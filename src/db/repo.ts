@@ -1,7 +1,7 @@
 import { randomUUID } from 'expo-crypto';
 import { periodEnd } from '@/domain/dates';
 import { SORT_KEYS, type SortDir, type SortKey } from '@/domain/sort';
-import type { DateKey, Member, Membership } from '@/domain/types';
+import type { Attendance, DateKey, Member, Membership } from '@/domain/types';
 import { useDataStore } from '@/state/store';
 import { DEFAULT_ACCENT, isAccentKey, type AccentKey } from '@/ui/theme';
 import type { SyncStore, TableName } from '@/sync/engine';
@@ -9,6 +9,7 @@ import { db, getMeta, setMeta } from './database';
 
 type MemberRow = Omit<Member, 'active' | 'deleted'> & { active: number; deleted: number; dirty: number };
 type MembershipRow = Omit<Membership, 'deleted'> & { deleted: number; dirty: number };
+type AttendanceRow = Omit<Attendance, 'deleted'> & { deleted: number; dirty: number };
 
 const toMember = (r: MemberRow): Member => ({
   id: r.id,
@@ -16,6 +17,10 @@ const toMember = (r: MemberRow): Member => ({
   lastName: r.lastName,
   phone: r.phone,
   note: r.note,
+  groupName: r.groupName ?? null,
+  price: r.price ?? null,
+  birthDate: r.birthDate ?? null,
+  joinedAt: r.joinedAt ?? null,
   active: r.active === 1,
   createdAt: r.createdAt,
   updatedAt: r.updatedAt,
@@ -31,6 +36,15 @@ const toMembership = (r: MembershipRow): Membership => ({
   amount: r.amount,
   paidAt: r.paidAt,
   note: r.note,
+  createdAt: r.createdAt,
+  updatedAt: r.updatedAt,
+  deleted: r.deleted === 1,
+});
+
+const toAttendance = (r: AttendanceRow): Attendance => ({
+  id: r.id,
+  memberId: r.memberId,
+  date: r.date,
   createdAt: r.createdAt,
   updatedAt: r.updatedAt,
   deleted: r.deleted === 1,
@@ -54,19 +68,27 @@ export async function getMember(id: string): Promise<Member | null> {
   return row ? toMember(row) : null;
 }
 
-export type MemberFields = Pick<Member, 'firstName' | 'lastName' | 'phone' | 'note'>;
+export type MemberFields = Pick<
+  Member,
+  'firstName' | 'lastName' | 'phone' | 'note' | 'groupName' | 'price' | 'birthDate' | 'joinedAt'
+>;
 
 export async function createMember(fields: MemberFields): Promise<string> {
   const id = randomUUID();
   const ts = nowIso();
   await db.runAsync(
-    `INSERT INTO members (id, firstName, lastName, phone, note, active, createdAt, updatedAt, deleted, dirty)
-     VALUES (?, ?, ?, ?, ?, 1, ?, ?, 0, 1)`,
+    `INSERT INTO members (id, firstName, lastName, phone, note, groupName, price, birthDate, joinedAt,
+                          active, createdAt, updatedAt, deleted, dirty)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, 0, 1)`,
     id,
     fields.firstName,
     fields.lastName,
     fields.phone,
     fields.note,
+    fields.groupName,
+    fields.price,
+    fields.birthDate,
+    fields.joinedAt,
     ts,
     ts,
   );
@@ -90,6 +112,46 @@ export async function updateMember(id: string, fields: Partial<MemberFields & { 
     id,
   );
   changed();
+}
+
+/** Soft-deletes a member and their memberships. Returns the membership ids, for undo. */
+export async function deleteMember(id: string): Promise<string[]> {
+  const rows = await db.getAllAsync<{ id: string }>(
+    'SELECT id FROM memberships WHERE memberId = ? AND deleted = 0',
+    id,
+  );
+  const ts = nowIso();
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      'UPDATE memberships SET deleted = 1, updatedAt = ?, dirty = 1 WHERE memberId = ? AND deleted = 0',
+      ts,
+      id,
+    );
+    await db.runAsync('UPDATE members SET deleted = 1, updatedAt = ?, dirty = 1 WHERE id = ?', ts, id);
+  });
+  changed();
+  return rows.map((r) => r.id);
+}
+
+/** Undo for `deleteMember`. */
+export async function restoreMember(id: string, membershipIds: string[]) {
+  const ts = nowIso();
+  await db.withTransactionAsync(async () => {
+    await db.runAsync('UPDATE members SET deleted = 0, updatedAt = ?, dirty = 1 WHERE id = ?', ts, id);
+    for (const mid of membershipIds) {
+      await db.runAsync('UPDATE memberships SET deleted = 0, updatedAt = ?, dirty = 1 WHERE id = ?', ts, mid);
+    }
+  });
+  changed();
+}
+
+/** Distinct group names in use, A-Z. */
+export async function listGroups(): Promise<string[]> {
+  const rows = await db.getAllAsync<{ groupName: string }>(
+    `SELECT DISTINCT groupName FROM members WHERE deleted = 0 AND groupName IS NOT NULL AND groupName != ''
+     ORDER BY groupName COLLATE NOCASE`,
+  );
+  return rows.map((r) => r.groupName);
 }
 
 // ---------- Memberships ----------
@@ -151,6 +213,18 @@ export async function markPaid(id: string, paidAt: DateKey, amount: number) {
   changed();
 }
 
+/** Sets payment date and amount exactly (used to undo a payment change). */
+export async function setPayment(id: string, paidAt: DateKey | null, amount: number) {
+  await db.runAsync(
+    'UPDATE memberships SET paidAt = ?, amount = ?, updatedAt = ?, dirty = 1 WHERE id = ?',
+    paidAt,
+    amount,
+    nowIso(),
+    id,
+  );
+  changed();
+}
+
 export async function markUnpaid(id: string) {
   await db.runAsync('UPDATE memberships SET paidAt = NULL, updatedAt = ?, dirty = 1 WHERE id = ?', nowIso(), id);
   changed();
@@ -158,6 +232,52 @@ export async function markUnpaid(id: string) {
 
 export async function deleteMembership(id: string) {
   await db.runAsync('UPDATE memberships SET deleted = 1, updatedAt = ?, dirty = 1 WHERE id = ?', nowIso(), id);
+  changed();
+}
+
+export async function restoreMembership(id: string) {
+  await db.runAsync('UPDATE memberships SET deleted = 0, updatedAt = ?, dirty = 1 WHERE id = ?', nowIso(), id);
+  changed();
+}
+
+// ---------- Attendance ----------
+
+export async function listAttendance(): Promise<Attendance[]> {
+  const rows = await db.getAllAsync<AttendanceRow>('SELECT * FROM attendance WHERE deleted = 0');
+  return rows.map(toAttendance);
+}
+
+/**
+ * Marks a member present/absent on a day. Reuses the existing row for that
+ * member+day (also a previously unchecked one) so toggling never piles up rows.
+ */
+export async function setPresent(memberId: string, date: DateKey, present: boolean) {
+  const existing = await db.getFirstAsync<{ id: string; deleted: number }>(
+    'SELECT id, deleted FROM attendance WHERE memberId = ? AND date = ? ORDER BY deleted ASC, updatedAt DESC LIMIT 1',
+    memberId,
+    date,
+  );
+  const ts = nowIso();
+  if (existing) {
+    if ((existing.deleted === 0) === present) return;
+    await db.runAsync(
+      'UPDATE attendance SET deleted = ?, updatedAt = ?, dirty = 1 WHERE id = ?',
+      present ? 0 : 1,
+      ts,
+      existing.id,
+    );
+  } else if (present) {
+    await db.runAsync(
+      'INSERT INTO attendance (id, memberId, date, createdAt, updatedAt, deleted, dirty) VALUES (?, ?, ?, ?, ?, 0, 1)',
+      randomUUID(),
+      memberId,
+      date,
+      ts,
+      ts,
+    );
+  } else {
+    return;
+  }
   changed();
 }
 
@@ -215,21 +335,36 @@ export async function setListPrefs(prefs: ListPrefs) {
 
 export async function countPending(): Promise<number> {
   const row = await db.getFirstAsync<{ n: number }>(
-    'SELECT (SELECT COUNT(*) FROM members WHERE dirty = 1) + (SELECT COUNT(*) FROM memberships WHERE dirty = 1) AS n',
+    `SELECT (SELECT COUNT(*) FROM members WHERE dirty = 1) + (SELECT COUNT(*) FROM memberships WHERE dirty = 1)
+          + (SELECT COUNT(*) FROM attendance WHERE dirty = 1) AS n`,
   );
   return row?.n ?? 0;
 }
 
-const MEMBER_COLS = ['id', 'firstName', 'lastName', 'phone', 'note', 'active', 'createdAt', 'updatedAt', 'deleted'];
+const MEMBER_COLS = [
+  'id', 'firstName', 'lastName', 'phone', 'note', 'groupName', 'price', 'birthDate', 'joinedAt',
+  'active', 'createdAt', 'updatedAt', 'deleted',
+];
 const MEMBERSHIP_COLS = [
   'id', 'memberId', 'periodStart', 'months', 'periodEnd', 'amount', 'paidAt', 'note', 'createdAt', 'updatedAt', 'deleted',
 ];
+const ATTENDANCE_COLS = ['id', 'memberId', 'date', 'createdAt', 'updatedAt', 'deleted'];
+const COLS: Record<TableName, string[]> = {
+  members: MEMBER_COLS,
+  memberships: MEMBERSHIP_COLS,
+  attendance: ATTENDANCE_COLS,
+};
 
 export const sqliteSyncStore: SyncStore = {
   async getDirty() {
     const members = await db.getAllAsync<MemberRow>('SELECT * FROM members WHERE dirty = 1');
     const memberships = await db.getAllAsync<MembershipRow>('SELECT * FROM memberships WHERE dirty = 1');
-    return { members: members.map(toMember), memberships: memberships.map(toMembership) };
+    const attendance = await db.getAllAsync<AttendanceRow>('SELECT * FROM attendance WHERE dirty = 1');
+    return {
+      members: members.map(toMember),
+      memberships: memberships.map(toMembership),
+      attendance: attendance.map(toAttendance),
+    };
   },
 
   async markClean(table: TableName, rows) {
@@ -256,7 +391,7 @@ export const sqliteSyncStore: SyncStore = {
   },
 
   async upsertRemote(table: TableName, rows) {
-    const cols = table === 'members' ? MEMBER_COLS : MEMBERSHIP_COLS;
+    const cols = COLS[table];
     const sql = `INSERT OR REPLACE INTO ${table} (${cols.join(', ')}, dirty) VALUES (${cols.map(() => '?').join(', ')}, 0)`;
     await db.withTransactionAsync(async () => {
       for (const row of rows) {

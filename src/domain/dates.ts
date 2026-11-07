@@ -39,3 +39,31 @@ export function isValidDateKey(key: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return false;
   return toDateKey(fromDateKey(key)) === key;
 }
+
+/** `YYYY-MM` month of a date key. */
+export function monthOf(key: DateKey): string {
+  return key.slice(0, 7);
+}
+
+/** Moves a `YYYY-MM` month by `delta` months. */
+export function shiftMonth(month: string, delta: number): string {
+  const [y, m] = month.split('-').map(Number);
+  const total = y * 12 + (m - 1) + delta;
+  return `${Math.floor(total / 12)}-${pad((total % 12) + 1)}`;
+}
+
+const isLeap = (y: number) => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+
+/** True on the birthday; 29 Feb birthdays count on 28 Feb in non-leap years. */
+export function isBirthday(birth: DateKey | null, today: DateKey): boolean {
+  if (!birth) return false;
+  const md = birth.slice(5);
+  if (md === today.slice(5)) return true;
+  return md === '02-29' && today.slice(5) === '02-28' && !isLeap(Number(today.slice(0, 4)));
+}
+
+/** Completed years between `birth` and `today`. */
+export function ageOn(birth: DateKey, today: DateKey): number {
+  const years = Number(today.slice(0, 4)) - Number(birth.slice(0, 4));
+  return today.slice(5) >= birth.slice(5) ? years : years - 1;
+}

@@ -11,6 +11,7 @@ import { t } from '@/i18n/sr';
 import { useDataStore, useSyncStore, useUiStore } from '@/state/store';
 import { refreshSyncInfo, scheduleSync, syncNow } from '@/sync/service';
 import { ACCENTS, colors, makeTheme } from '@/ui/theme';
+import { UndoSnackbar } from '@/ui/UndoSnackbar';
 
 function useSyncTriggers(ready: boolean) {
   useEffect(() => {
@@ -89,6 +90,7 @@ export default function RootLayout() {
             <Stack.Screen name="uputstvo" options={{ title: t.guide.title }} />
           </Stack>
         )}
+        <UndoSnackbar />
       </PaperProvider>
     </SafeAreaProvider>
   );

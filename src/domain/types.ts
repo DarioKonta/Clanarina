@@ -9,6 +9,13 @@ export interface Member {
   lastName: string;
   phone: string | null;
   note: string | null;
+  /** Training group, e.g. "Deca" or "Odrasli". Free text, shared across phones. */
+  groupName: string | null;
+  /** Monthly price for this member in RSD; null = club default. */
+  price: number | null;
+  birthDate: DateKey | null;
+  /** Date the member joined the club. */
+  joinedAt: DateKey | null;
   active: boolean;
   createdAt: IsoTimestamp;
   updatedAt: IsoTimestamp;
@@ -41,3 +48,13 @@ export type MemberStatus =
   | { kind: 'bez_clanarine' };
 
 export type MemberStatusKind = MemberStatus['kind'];
+
+/** One member present at one training day. Unchecking sets `deleted`. */
+export interface Attendance {
+  id: string;
+  memberId: string;
+  date: DateKey;
+  createdAt: IsoTimestamp;
+  updatedAt: IsoTimestamp;
+  deleted: boolean;
+}

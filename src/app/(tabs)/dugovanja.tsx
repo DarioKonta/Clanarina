@@ -11,6 +11,7 @@ import { t } from '@/i18n/sr';
 import { EmptyState } from '@/ui/EmptyState';
 import { OfflineBanner } from '@/ui/OfflineBanner';
 import { PaymentDialog } from '@/ui/PaymentDialog';
+import { ReminderButton } from '@/ui/ReminderButton';
 import { colors } from '@/ui/theme';
 
 export default function DebtsScreen() {
@@ -67,12 +68,21 @@ export default function DebtsScreen() {
                 {t.debts.unpaidCount(item.unpaidCount)}
               </Text>
             </View>
-            <Text variant="titleMedium" style={{ color: colors.owes }}>
-              {formatMoney(item.debt)}
-            </Text>
-            <Button mode="contained" compact icon="cash" onPress={() => pay(item.member)}>
-              {t.members.payQuick}
-            </Button>
+            <View style={{ alignItems: 'flex-end', gap: 6 }}>
+              <Text variant="titleMedium" style={{ color: colors.owes }}>
+                {formatMoney(item.debt)}
+              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <ReminderButton
+                  compact
+                  member={item.member}
+                  status={{ kind: 'duguje', debt: item.debt, since: item.since, unpaidCount: item.unpaidCount }}
+                />
+                <Button mode="contained" compact icon="cash" onPress={() => pay(item.member)}>
+                  {t.members.payQuick}
+                </Button>
+              </View>
+            </View>
           </Pressable>
         )}
         ListEmptyComponent={

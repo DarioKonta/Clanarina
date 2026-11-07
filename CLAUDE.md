@@ -38,8 +38,11 @@ It's used by a few people and installed as an APK, not through the Play Store. S
 src/app/                 Expo Router screens
   _layout.tsx              Root: Paper theme, DB migration gate, sync triggers
   (tabs)/index.tsx         Članovi: search, filter chips, member cards, quick "Uplata"
-  (tabs)/dugovanja.tsx     Dugovanja: who owes, total, quick payment
-  (tabs)/podesavanja.tsx   Podešavanja: sync URL/secret, test, sync now, default amount
+  (tabs)/dugovanja.tsx     Dugovanja: who owes, total, quick payment, reminder (SMS/share)
+  (tabs)/prisustvo.tsx     Prisustvo: training attendance per day (tap to mark present)
+  (tabs)/pregled.tsx       Pregled: monthly money in, due/paid, debt, 6-month chart
+  (tabs)/podesavanja.tsx   Podešavanja: sync URL/secret, test, sync now, default amount, Excel export, accent color
+  uputstvo.tsx             In-app Google Sheets setup guide + troubleshooting
   clan/[id].tsx            Member detail + membership history
   clan/uredi.tsx           Create/edit member (?id= for edit)
   clanarina/nova.tsx       New membership (?memberId=, ?paid=1)
@@ -58,7 +61,11 @@ Local writes also bump `localVersion`, which triggers a debounced auto-sync from
 Every row has `id` (UUID v4, made on the device), `createdAt`, `updatedAt` (ISO UTC) and `deleted` (soft delete, 0/1).
 The local-only `dirty` flag (0/1) is never sent to the server.
 
-**members:** id, firstName, lastName, phone?, note?, active (archived = 0), createdAt, updatedAt, deleted
+**members:** id, firstName, lastName, phone?, note?, groupName?, price? (whole RSD; null = default), birthDate?, joinedAt?,
+active (archived = 0), createdAt, updatedAt, deleted
+
+**attendance:** id, memberId, date `YYYY-MM-DD`, createdAt, updatedAt, deleted. One row per member+day; unchecking sets
+`deleted = 1` and checking again reuses the row (`setPresent` in repo).
 
 **memberships:** id, memberId, periodStart `YYYY-MM-DD`, months, periodEnd (derived: start + months − 1 day),
 amount (whole RSD), paidAt (`YYYY-MM-DD` or null), note?, createdAt, updatedAt, deleted
@@ -82,6 +89,9 @@ amount (whole RSD), paidAt (`YYYY-MM-DD` or null), note?, createdAt, updatedAt, 
 - Sync is triggered by app start, returning to the foreground, coming back online, 3 s after a local edit, the header pill and the settings button.
 - Deletes are soft (`deleted = 1`).
 - In the sheet, cells are plain text and `onEdit` stamps rows edited by hand.
+- Code.gs matches columns by header name and appends missing ones. Every response has `schema`; the app requires
+  `MIN_SERVER_SCHEMA` (`src/sync/protocol.ts`) and otherwise fails with `outdated` *before* clearing dirty rows.
+  Adding synced fields/tables = bump `SCHEMA` in Code.gs **and** `MIN_SERVER_SCHEMA`, and tell users to update the script.
 
 ## Conventions
 - Code, identifiers and comments are in **English**. User-facing text is in **Serbian Latin** and lives only in `src/i18n/sr.ts`.

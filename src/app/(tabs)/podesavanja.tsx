@@ -10,6 +10,7 @@ import { t } from '@/i18n/sr';
 import { useSyncStore, useUiStore } from '@/state/store';
 import { appsScriptTransport } from '@/sync/client';
 import { refreshSyncInfo, syncNow } from '@/sync/service';
+import { exportToExcel } from '@/ui/exportExcel';
 import { isConfigured, loadSyncSettings, saveSyncSettings } from '@/sync/settings';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { ACCENT_KEYS, ACCENTS, colors, useAccent, type AccentKey } from '@/ui/theme';
@@ -23,6 +24,7 @@ export default function SettingsScreen() {
   const [urlError, setUrlError] = useState<string>();
   const [toast, setToast] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     loadSyncSettings().then((s) => {
@@ -57,6 +59,17 @@ export default function SettingsScreen() {
       setToast(t.sync.errNetwork);
     } finally {
       setTesting(false);
+    }
+  };
+
+  const runExport = async () => {
+    setExporting(true);
+    try {
+      await exportToExcel();
+    } catch {
+      setToast(t.export.failed);
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -128,6 +141,22 @@ export default function SettingsScreen() {
             onBlur={saveAmount}
             keyboardType="number-pad"
           />
+        </Section>
+
+        <Section title={t.export.button}>
+          <Text variant="bodyMedium" style={styles.muted}>
+            {t.export.hint}
+          </Text>
+          <Button
+            mode="contained-tonal"
+            icon="microsoft-excel"
+            onPress={runExport}
+            loading={exporting}
+            disabled={exporting}
+            contentStyle={styles.bigBtn}
+          >
+            {t.export.button}
+          </Button>
         </Section>
 
         <Section title={t.settings.appearanceSection}>

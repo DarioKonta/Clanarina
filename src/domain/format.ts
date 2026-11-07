@@ -11,6 +11,20 @@ function dayMonth(key: DateKey): string {
   return `${d.getDate()}. ${MONTHS[d.getMonth()]}`;
 }
 
+const MONTHS_FULL = [
+  'januar', 'februar', 'mart', 'april', 'maj', 'jun', 'jul', 'avgust', 'septembar', 'oktobar', 'novembar', 'decembar',
+];
+
+/** `2026-11` → "novembar 2026". */
+export function formatMonth(month: string): string {
+  return `${MONTHS_FULL[Number(month.slice(5, 7)) - 1]} ${month.slice(0, 4)}`;
+}
+
+/** `2026-11` → "nov" (chart labels). */
+export function formatMonthShort(month: string): string {
+  return MONTHS[Number(month.slice(5, 7)) - 1];
+}
+
 export function formatDate(key: DateKey): string {
   return `${dayMonth(key)} ${key.slice(0, 4)}.`;
 }

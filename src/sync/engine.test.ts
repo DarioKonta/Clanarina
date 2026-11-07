@@ -1,14 +1,15 @@
-import type { Member, Membership } from '@/domain/types';
+import type { Attendance, Member, Membership } from '@/domain/types';
 import { runSync, selectNewer, SyncError, type SyncStore, type TableName } from './engine';
 import type { SyncRequest, SyncResponse, Transport } from './protocol';
-import { normalizeMember, normalizeMembership } from './protocol';
+import { normalizeAttendance, normalizeMember, normalizeMembership } from './protocol';
 
-type Row = (Member | Membership) & { dirty: boolean };
+type Row = (Member | Membership | Attendance) & { dirty: boolean };
 
-function memoryStore(initial: { members?: Row[]; memberships?: Row[]; lastSyncAt?: string | null }) {
+function memoryStore(initial: { members?: Row[]; memberships?: Row[]; attendance?: Row[]; lastSyncAt?: string | null }) {
   const tables: Record<TableName, Map<string, Row>> = {
     members: new Map((initial.members ?? []).map((r) => [r.id, r])),
     memberships: new Map((initial.memberships ?? []).map((r) => [r.id, r])),
+    attendance: new Map((initial.attendance ?? []).map((r) => [r.id, r])),
   };
   let lastSyncAt = initial.lastSyncAt ?? null;
   const strip = ({ dirty, ...rest }: Row) => rest;
@@ -17,6 +18,7 @@ function memoryStore(initial: { members?: Row[]; memberships?: Row[]; lastSyncAt
       return {
         members: [...tables.members.values()].filter((r) => r.dirty).map(strip) as Member[],
         memberships: [...tables.memberships.values()].filter((r) => r.dirty).map(strip) as Membership[],
+        attendance: [...tables.attendance.values()].filter((r) => r.dirty).map(strip) as Attendance[],
       };
     },
     async markClean(t, rows) {
@@ -52,6 +54,10 @@ const member = (id: string, updatedAt: string, extra: Partial<Member> = {}): Mem
   lastName: 'Prezime',
   phone: null,
   note: null,
+  groupName: null,
+  price: null,
+  birthDate: null,
+  joinedAt: null,
   active: true,
   createdAt: updatedAt,
   updatedAt,
@@ -59,15 +65,16 @@ const member = (id: string, updatedAt: string, extra: Partial<Member> = {}): Mem
   ...extra,
 });
 
-function fakeServer(rows: { members?: unknown[]; memberships?: unknown[] } = {}) {
+function fakeServer(rows: { members?: unknown[]; memberships?: unknown[]; attendance?: unknown[] } = {}, schema: number | null = 2) {
+  const version = schema === null ? {} : { schema };
   const calls: SyncRequest[] = [];
   const transport: Transport = async (body): Promise<SyncResponse> => {
     calls.push(body);
     if (body.secret !== 'tajna') return { ok: false, error: 'unauthorized' };
     if (body.action === 'pull') {
-      return { ok: true, serverTime: '2026-11-07T12:00:00.000Z', ...rows };
+      return { ok: true, serverTime: '2026-11-07T12:00:00.000Z', ...version, ...rows };
     }
-    return { ok: true, serverTime: '2026-11-07T12:00:00.000Z' };
+    return { ok: true, serverTime: '2026-11-07T12:00:00.000Z', ...version };
   };
   return { transport, calls };
 }
@@ -176,7 +183,73 @@ describe('runSync', () => {
   });
 });
 
+describe('attendance and server version', () => {
+  const att = (id: string, updatedAt: string, extra: Partial<Attendance> = {}): Attendance => ({
+    id,
+    memberId: 'a',
+    date: '2026-11-07',
+    createdAt: updatedAt,
+    updatedAt,
+    deleted: false,
+    ...extra,
+  });
+
+  test('pushes dirty attendance and pulls remote attendance', async () => {
+    const { store, tables } = memoryStore({
+      attendance: [{ ...att('p1', '2026-11-07T10:00:00.000Z'), dirty: true }],
+    });
+    const { transport, calls } = fakeServer({
+      attendance: [{ id: 'p2', memberId: 'b', date: '2026-11-06', deleted: '0', updatedAt: '2026-11-07T09:00:00.000Z' }],
+    });
+    const result = await runSync(store, transport, 'tajna');
+    const push = calls[0] as Extract<SyncRequest, { action: 'push' }>;
+    expect(push.attendance.map((a) => a.id)).toEqual(['p1']);
+    expect(tables.attendance.get('p1')!.dirty).toBe(false);
+    expect(tables.attendance.get('p2')).toMatchObject({ memberId: 'b', date: '2026-11-06', deleted: false });
+    expect(result.pulled).toBe(1);
+  });
+
+  test('outdated script (no schema) stops sync and keeps rows dirty', async () => {
+    const { store, tables } = memoryStore({
+      members: [{ ...member('a', '2026-11-06T10:00:00.000Z', { groupName: 'Deca' }), dirty: true }],
+    });
+    const { transport } = fakeServer({}, null);
+    await expect(runSync(store, transport, 'tajna')).rejects.toMatchObject({ code: 'outdated' });
+    expect(tables.members.get('a')!.dirty).toBe(true);
+  });
+
+  test('outdated script is detected on pull too', async () => {
+    const { store, getLast } = memoryStore({ lastSyncAt: '2026-11-01T00:00:00.000Z' });
+    const { transport } = fakeServer({}, 1);
+    await expect(runSync(store, transport, 'tajna')).rejects.toMatchObject({ code: 'outdated' });
+    expect(getLast()).toBe('2026-11-01T00:00:00.000Z');
+  });
+});
+
 describe('normalize', () => {
+  test('new member fields from the sheet', () => {
+    expect(
+      normalizeMember({
+        id: 'a',
+        firstName: 'Ana',
+        groupName: ' Deca ',
+        price: '2.500',
+        birthDate: '2015-03-04',
+        joinedAt: '',
+        updatedAt: '2026-11-07T09:00:00.000Z',
+      }),
+    ).toMatchObject({ groupName: 'Deca', price: 2500, birthDate: '2015-03-04', joinedAt: null });
+    expect(normalizeMember({ id: 'a', firstName: 'A', price: '', updatedAt: 'x' })).toMatchObject({ price: null });
+  });
+
+  test('attendance rows', () => {
+    expect(normalizeAttendance({ id: 'p', memberId: 'a', date: '2026-11-07', updatedAt: 'x' })).toMatchObject({
+      deleted: false,
+      createdAt: 'x',
+    });
+    expect(normalizeAttendance({ id: 'p', memberId: 'a', date: '', updatedAt: 'x' })).toBeNull();
+  });
+
   test('sheet text values become typed rows', () => {
     expect(
       normalizeMember({

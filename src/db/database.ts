@@ -40,6 +40,24 @@ const MIGRATIONS: string[] = [
     value TEXT
   );
   `,
+  // 2: member group/price/birthday/join date + training attendance.
+  `
+  ALTER TABLE members ADD COLUMN groupName TEXT;
+  ALTER TABLE members ADD COLUMN price INTEGER;
+  ALTER TABLE members ADD COLUMN birthDate TEXT;
+  ALTER TABLE members ADD COLUMN joinedAt TEXT;
+  CREATE TABLE IF NOT EXISTS attendance (
+    id TEXT PRIMARY KEY NOT NULL,
+    memberId TEXT NOT NULL,
+    date TEXT NOT NULL,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    dirty INTEGER NOT NULL DEFAULT 1
+  );
+  CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(date);
+  CREATE INDEX IF NOT EXISTS idx_attendance_member ON attendance(memberId);
+  `,
 ];
 
 export async function migrate(): Promise<void> {
