@@ -1,0 +1,13 @@
+Mobile app for tracking who paid its membership
+
+Language: Serbian only
+
+the app is for a few people, it will not be published on the play store.
+The app needs to have data stored localy (in the moment when the data is entered it wont have connection to the internet) 
+and then push it to google sheets. It also needs to pull the information from google sheets.
+The idea is for the user to be able to log the name, the duration of the membership (probably just 1 month, maybe more) and have an option to have a payment be delayed.
+e.g. someone is supposed to pay on the 1. of november, but they didnt bring the money, that ok they can pay later but the membership starts from the 1st.
+
+The app needs to be simple, look good and be easy to use.
+suggest a stack and the architectre for this
+
