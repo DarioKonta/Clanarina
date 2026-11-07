@@ -1,4 +1,5 @@
 import Constants from 'expo-constants';
+import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Button, HelperText, Snackbar, Text, TextInput } from 'react-native-paper';
@@ -68,6 +69,9 @@ export default function SettingsScreen() {
     <View style={{ flex: 1 }}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Section title={t.settings.syncSection}>
+          <Button mode="text" icon="help-circle-outline" onPress={() => router.push('/uputstvo')} style={styles.guideBtn}>
+            {t.guide.open}
+          </Button>
           <View style={styles.statusBox}>
             <Row label={t.settings.lastSync} value={lastSyncAt ? formatTimestamp(lastSyncAt) : t.settings.never} />
             <Row label={t.settings.pending} value={String(pending)} />
@@ -209,4 +213,5 @@ const styles = StyleSheet.create({
   muted: { color: colors.textMuted },
   bigBtn: { height: 52 },
   btnRow: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  guideBtn: { alignSelf: 'flex-start', marginLeft: -8 },
 });

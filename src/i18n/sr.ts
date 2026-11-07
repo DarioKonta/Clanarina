@@ -152,6 +152,92 @@ export const t = {
     version: 'Verzija',
     invalidUrl: 'URL mora početi sa https://script.google.com/ i završavati se sa /exec',
   },
+  guide: {
+    title: 'Povezivanje sa Google Sheets',
+    open: 'Uputstvo za povezivanje',
+    intro:
+      'Podešavanje radi jedna osoba, jednom, na računaru (oko 10 minuta). Ostali telefoni samo unesu URL i tajni ključ (korak 6). Nazivi menija u Google-u mogu biti na engleskom ili srpskom, zavisno od jezika naloga.',
+    stepsTitle: 'Koraci',
+    steps: [
+      {
+        title: 'Napravi tabelu',
+        body: 'Na računaru otvori sheets.google.com → «Blank spreadsheet» (prazna tabela). Nazovi je npr. «Članarine kik boks».',
+      },
+      {
+        title: 'Dodaj skriptu',
+        body: 'U tabeli: «Extensions → Apps Script». Obriši postojeći kod (function myFunction…), pa nalepi ceo kod iz fajla Code.gs (dugme ispod). Sačuvaj ikonom diska ili Ctrl+S.',
+      },
+      {
+        title: 'Pokreni setup',
+        body: 'U traci iznad koda izaberi funkciju «setup» i klikni «Run». Prvi put Google traži dozvolu: «Review permissions» → izaberi nalog → «Advanced» → «Go to … (unsafe)» → «Allow». U tabeli se pojavljuju listovi Clanovi i Clanarine.',
+      },
+      {
+        title: 'Kopiraj tajni ključ',
+        body: 'Na dnu se otvara «Execution log» sa redom «Tajni ključ (unesi u aplikaciju): …». Kopiraj tekst posle dvotačke (20 slova i brojeva). Ključ se uvek može naći i u «Project Settings» (zupčanik levo) → «Script properties» → SECRET.',
+      },
+      {
+        title: 'Objavi kao web aplikaciju',
+        body: 'Klikni plavo dugme «Deploy» → «New deployment» → zupčanik pored «Select type» → «Web app». Postavi: «Execute as: Me» i «Who has access: Anyone». Klikni «Deploy» i kopiraj «Web app URL» (završava se sa /exec). «Deployment ID» ti ne treba.',
+      },
+      {
+        title: 'Unesi u aplikaciju',
+        body: 'Pošalji sebi URL i ključ (Viber, mejl), pa na telefonu u Podešavanjima nalepi «URL skripte» i «Tajni ključ». Dodirni «Proveri vezu» – treba da piše «Veza radi ✔» – pa «Sačuvaj».',
+      },
+      {
+        title: 'Proveri',
+        body: 'Dodaj probnog člana i sačekaj par sekundi – treba da se pojavi u listu Clanovi (osveži tabelu). Zatim promeni prezime u tabeli i dodirni oznaku sinhronizacije gore desno – promena treba da stigne u aplikaciju.',
+      },
+    ],
+    openSheets: 'Otvori Google Sheets',
+    openCode: 'Otvori Code.gs',
+    problemsTitle: 'Mogući problemi',
+    problems: [
+      {
+        title: '«Pogrešan tajni ključ»',
+        body: 'Ključ u aplikaciji se ne poklapa sa onim u skripti. Kopiraj ga ponovo iz «Project Settings → Script properties → SECRET» i nalepi bez razmaka.',
+      },
+      {
+        title: '«URL mora početi sa https://script.google.com/…»',
+        body: 'Kopiran je pogrešan link (npr. link editora koji se završava sa /edit). Treba «Web app URL» iz «Deploy → Manage deployments», koji se završava sa /exec.',
+      },
+      {
+        title: '«Nema veze sa serverom»',
+        body: 'Proveri internet. U «Deploy → Manage deployments → olovka» mora biti «Who has access: Anyone». Poslovni ili školski Google nalozi često ne dozvoljavaju «Anyone» – tada koristi lični Gmail nalog.',
+      },
+      {
+        title: '«Greška na serveru»',
+        body: 'Pokreni «setup» još jednom u Apps Script editoru. Ako je kod menjan, objavi novu verziju (vidi «Promenjen Code.gs»). Ne menjaj nazive listova Clanovi i Clanarine ni prvi red sa nazivima kolona.',
+      },
+      {
+        title: '«Žao nam je, trenutno ne možemo da otvorimo datoteku»',
+        body: 'Ovo se dešava kad je u pregledaču prijavljeno više Google naloga. Otvori anonimni prozor (Ctrl+Shift+N), prijavi se samo nalogom koji je vlasnik tabele i pokušaj ponovo.',
+      },
+      {
+        title: "«Google hasn't verified this app»",
+        body: 'To je normalno za sopstvenu skriptu. Klikni «Advanced» → «Go to … (unsafe)» → «Allow».',
+      },
+      {
+        title: 'Podaci se ne pojavljuju u tabeli',
+        body: 'U Podešavanjima pogledaj «Izmene koje čekaju». Ako nije 0, dodirni «Sinhronizuj sada» (potreban je internet). Zatim osveži tabelu u pregledaču.',
+      },
+      {
+        title: 'Izmene iz tabele ne stižu na telefon',
+        body: 'Dodirni oznaku sinhronizacije gore desno ili «Sinhronizuj sada». Datumi u tabeli moraju biti u obliku 2026-11-01, a polja active i deleted 1 ili 0.',
+      },
+      {
+        title: 'Obrisan red se vratio',
+        body: 'Redove ne briši u tabeli – telefoni će ih vratiti. Umesto toga u koloni deleted upiši 1.',
+      },
+      {
+        title: 'Promenjen Code.gs, a aplikacija ne radi',
+        body: 'Posle svake izmene koda: «Deploy → Manage deployments → olovka → Version: New version → Deploy». URL ostaje isti. Ako je napravljen novi «New deployment», URL je nov i mora se uneti na svakom telefonu.',
+      },
+      {
+        title: 'Promena tajnog ključa',
+        body: 'U «Project Settings → Script properties» izmeni SECRET i sačuvaj. Novi ključ unesi na svakom telefonu. Do tada ti telefoni ne sinhronizuju, ali podaci ostaju sačuvani na njima.',
+      },
+    ],
+  },
   sync: {
     synced: (when: string) => `Sinhronizovano ${when}`,
     syncing: 'Sinhronizacija…',
