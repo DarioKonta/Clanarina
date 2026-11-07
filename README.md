@@ -24,12 +24,19 @@ npx eslint .
 ## Google Sheets sync
 Follow [apps-script/README.md](apps-script/README.md). Then enter the URL and the secret key in the app under **Podešavanja**. See [docs/secret-key.md](docs/secret-key.md) for where to find the key, how to enter it, and how to change it.
 
-## Build an APK
+## Release an update (Obtainium)
+Phones install and update the app with [Obtainium](https://github.com/ImranR98/Obtainium) from this repo's GitHub Releases.
+
 ```bash
-npx eas-cli@latest login
-npx eas-cli@latest build -p android --profile preview
+npm run release -- patch                 # 1.0.0 → 1.0.1: commit, push, build APK on EAS, publish GitHub release
+npm run release -- patch --notes "Šta je novo"
+npm run release -- --build <eas-build-id> # publish an already finished EAS build as the current version
 ```
-Open the link from the build on each phone and install it (allow "install from unknown sources").
+Needs `gh auth login` and `npx eas-cli@latest login` once, and a clean, committed working tree.
+The tag `v<version>` must match `expo.version` in `app.json`; EAS raises the internal build number automatically.
+
+**On each phone (once):** install Obtainium → **Add app** → paste `https://github.com/DarioKonta/Clanarina` → **Add** → **Install**.
+Then open Članarina → Podešavanja → enter the sync URL and secret key ([docs/secret-key.md](docs/secret-key.md)).
 
 ## Repository
 https://github.com/DarioKonta/Clanarina (public). The sync URL and secret key are never committed; they live only on the phones.

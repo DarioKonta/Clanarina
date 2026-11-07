@@ -41,9 +41,10 @@ _Last updated: 2026-11-07_
 - [ ] Two-phone test: edit on both, sync, check that the results match
 - [ ] Optionally apply the Google Stitch design tweaks
 - [ ] Custom app icon and splash screen (currently Expo defaults)
-- [ ] Build the APK with EAS (`preview`), install on each phone
+- [x] Build the APK with EAS (`preview`); v1.0.0 = EAS build d1576f8e
 - [x] Public GitHub repo created and pushed: https://github.com/DarioKonta/Clanarina (GitHub chosen over GitLab for Obtainium)
-- [ ] Obtainium updates: auto version numbers + release command (APK → GitHub Release), test on own phone
+- [x] Obtainium updates: `npm run release` (scripts/release.mjs) builds on EAS and publishes the APK as a GitHub Release; eas.json uses remote auto-incremented versionCode
+- [ ] Test install + update through Obtainium on own phone
 
 ## Open questions
 - Is 3.000 RSD the right default price? Do prices differ per member or group?
