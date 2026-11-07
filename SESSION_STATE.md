@@ -15,6 +15,7 @@ _Last updated: 2026-11-07_
 - [x] Screens: Članovi, Član detail, Novi/izmeni član, Nova članarina, Evidentiraj uplatu (dialog), Dugovanja, Podešavanja
 - [x] Apps Script backend (`apps-script/Code.gs`) and setup guide; checked against a mock Sheets harness in Node
 - [x] `eas.json` with APK profiles
+- [x] Secret key guide (`docs/secret-key.md`), linked from both READMEs
 - [x] Checks: 35 Jest tests pass, `tsc` clean, eslint clean, expo-doctor 20/20, `expo export --platform android` bundles
 
 ## Decisions
@@ -32,7 +33,10 @@ _Last updated: 2026-11-07_
 
 ## Roadmap
 - [ ] Run in Expo Go on a phone (`npx expo start`) and click through all screens
-- [ ] Create the Google Sheet and deploy Code.gs (`apps-script/README.md`), then test real sync
+- [x] Create the Google Sheet and deploy Code.gs; connection test (Proveri vezu) works on the real Google runtime (2026-11-07)
+- [x] Test real push/pull: app → Sheet, Sheet edit → app (user confirmed everything works)
+- [x] Tab bar respects Android nav buttons (safe-area inset)
+- [x] Članovi: sort menu (ime, prezime, status, važi do, dug, datum dodavanja) + table view toggle; choice saved in `meta.listPrefs` (`src/domain/sort.ts` tested, `src/ui/MemberTable.tsx`)
 - [ ] Offline test: airplane mode → add data → back online → check the sheet
 - [ ] Two-phone test: edit on both, sync, check that the results match
 - [ ] Optionally apply the Google Stitch design tweaks
@@ -53,5 +57,5 @@ _Last updated: 2026-11-07_
 - The default Expo icon and splash screen are still in place.
 
 ## Next step
-Run `npx expo start`, open the app in Expo Go on an Android phone and try the main flow:
-new member → new membership (unpaid) → Dugovanja → Uplata.
+Check on the phone (Expo Go): tab bar no longer overlaps the system buttons; sort menu and table view on Članovi.
+Then: app icon/splash, then build the APK.

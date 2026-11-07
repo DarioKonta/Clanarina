@@ -1,14 +1,17 @@
 import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { Avatar, Button, Chip, FAB, Searchbar, Text } from 'react-native-paper';
+import { Avatar, Button, Chip, FAB, IconButton, Menu, Searchbar, Text } from 'react-native-paper';
+import { DEFAULT_LIST_PREFS, getListPrefs, setListPrefs, type ListPrefs } from '@/db/repo';
 import { todayKey } from '@/domain/dates';
 import { fullName, initials, searchKey } from '@/domain/format';
+import { DEFAULT_SORT_DIR, SORT_KEYS, sortMembers, type SortKey } from '@/domain/sort';
 import { oldestUnpaid } from '@/domain/status';
 import type { Member, Membership, MemberStatusKind } from '@/domain/types';
 import { useMembersWithStatus, type MemberWithStatus } from '@/hooks/useData';
 import { t } from '@/i18n/sr';
 import { EmptyState } from '@/ui/EmptyState';
+import { MemberTable } from '@/ui/MemberTable';
 import { OfflineBanner } from '@/ui/OfflineBanner';
 import { PaymentDialog } from '@/ui/PaymentDialog';
 import { StatusChip } from '@/ui/StatusChip';
@@ -30,10 +33,30 @@ export default function MembersScreen() {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [paying, setPaying] = useState<{ member: Member; membership: Membership } | null>(null);
+  const [prefs, setPrefs] = useState<ListPrefs>(DEFAULT_LIST_PREFS);
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
+
+  useEffect(() => {
+    void getListPrefs().then(setPrefs);
+  }, []);
+
+  const updatePrefs = (patch: Partial<ListPrefs>) => {
+    const next = { ...prefs, ...patch };
+    setPrefs(next);
+    void setListPrefs(next);
+  };
+
+  // Same key again flips the direction; a new key starts in its natural direction.
+  const onSort = (key: SortKey) =>
+    updatePrefs(
+      key === prefs.sortKey
+        ? { sortDir: prefs.sortDir === 'asc' ? 'desc' : 'asc' }
+        : { sortKey: key, sortDir: DEFAULT_SORT_DIR[key] },
+    );
 
   const items = useMemo(() => {
     const q = searchKey(query.trim());
-    return (data?.items ?? []).filter(({ member, status }) => {
+    const filtered = (data?.items ?? []).filter(({ member, status }) => {
       if (filter === 'archived') {
         if (member.active) return false;
       } else {
@@ -44,7 +67,8 @@ export default function MembersScreen() {
       if (!q) return true;
       return searchKey(`${fullName(member)} ${member.phone ?? ''}`).includes(q);
     });
-  }, [data, query, filter]);
+    return sortMembers(filtered, prefs.sortKey, prefs.sortDir);
+  }, [data, query, filter, prefs.sortKey, prefs.sortDir]);
 
   const onQuickPay = (item: MemberWithStatus) => {
     const unpaid = oldestUnpaid(item.memberships, todayKey());
@@ -53,18 +77,68 @@ export default function MembersScreen() {
   };
 
   const hasMembers = (data?.members.length ?? 0) > 0;
+  const openMember = (item: MemberWithStatus) =>
+    router.push({ pathname: '/clan/[id]', params: { id: item.member.id } });
+  const empty = loading ? undefined : hasMembers ? (
+    <EmptyState icon="account-search" title={t.members.noResults} />
+  ) : (
+    <EmptyState icon="account-plus" title={t.members.emptyTitle} text={t.members.emptyText} />
+  );
 
   return (
     <View style={styles.screen}>
       <OfflineBanner />
       <View style={styles.top}>
-        <Searchbar
-          placeholder={t.members.search}
-          value={query}
-          onChangeText={setQuery}
-          style={styles.search}
-          inputStyle={{ minHeight: 0 }}
-        />
+        <View style={styles.searchRow}>
+          <Searchbar
+            placeholder={t.members.search}
+            value={query}
+            onChangeText={setQuery}
+            style={styles.search}
+            inputStyle={{ minHeight: 0 }}
+          />
+          <Menu
+            visible={sortMenuOpen}
+            onDismiss={() => setSortMenuOpen(false)}
+            anchor={
+              <IconButton
+                icon="sort"
+                mode="contained-tonal"
+                size={24}
+                accessibilityLabel={t.list.sort}
+                onPress={() => setSortMenuOpen(true)}
+              />
+            }
+          >
+            {SORT_KEYS.map((key) => {
+              const active = prefs.sortKey === key;
+              return (
+                <Menu.Item
+                  key={key}
+                  title={t.list.sortOptions[key]}
+                  titleStyle={active ? { color: colors.primary, fontWeight: '700' } : undefined}
+                  trailingIcon={active ? (prefs.sortDir === 'asc' ? 'arrow-up' : 'arrow-down') : undefined}
+                  accessibilityLabel={
+                    active
+                      ? `${t.list.sortOptions[key]}, ${prefs.sortDir === 'asc' ? t.list.ascending : t.list.descending}`
+                      : t.list.sortOptions[key]
+                  }
+                  onPress={() => {
+                    setSortMenuOpen(false);
+                    onSort(key);
+                  }}
+                />
+              );
+            })}
+          </Menu>
+          <IconButton
+            icon={prefs.view === 'cards' ? 'table' : 'view-agenda'}
+            mode="contained-tonal"
+            size={24}
+            accessibilityLabel={prefs.view === 'cards' ? t.list.showTable : t.list.showCards}
+            onPress={() => updatePrefs({ view: prefs.view === 'cards' ? 'table' : 'cards' })}
+          />
+        </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
           {FILTERS.map((f) => (
             <Chip
@@ -80,19 +154,24 @@ export default function MembersScreen() {
         </ScrollView>
       </View>
 
-      <FlatList
-        data={items}
-        keyExtractor={(i) => i.member.id}
-        contentContainerStyle={styles.list}
-        renderItem={({ item }) => <MemberCard item={item} onQuickPay={() => onQuickPay(item)} />}
-        ListEmptyComponent={
-          loading ? undefined : hasMembers ? (
-            <EmptyState icon="account-search" title={t.members.noResults} />
-          ) : (
-            <EmptyState icon="account-plus" title={t.members.emptyTitle} text={t.members.emptyText} />
-          )
-        }
-      />
+      {prefs.view === 'table' ? (
+        <MemberTable
+          items={items}
+          sortKey={prefs.sortKey}
+          sortDir={prefs.sortDir}
+          onSort={onSort}
+          onOpen={openMember}
+          empty={empty}
+        />
+      ) : (
+        <FlatList
+          data={items}
+          keyExtractor={(i) => i.member.id}
+          contentContainerStyle={styles.list}
+          renderItem={({ item }) => <MemberCard item={item} onQuickPay={() => onQuickPay(item)} />}
+          ListEmptyComponent={empty}
+        />
+      )}
 
       <FAB
         icon="plus"
@@ -150,7 +229,8 @@ function MemberCard({ item, onQuickPay }: { item: MemberWithStatus; onQuickPay: 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   top: { paddingHorizontal: 16, paddingTop: 4, gap: 10 },
-  search: { backgroundColor: colors.surface, borderRadius: 16, height: 48 },
+  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  search: { flex: 1, backgroundColor: colors.surface, borderRadius: 16, height: 48 },
   chips: { gap: 8, paddingBottom: 8 },
   chip: { backgroundColor: colors.surface },
   chipActive: { backgroundColor: colors.primary + '40' },

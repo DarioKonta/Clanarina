@@ -1,5 +1,6 @@
 import { randomUUID } from 'expo-crypto';
 import { periodEnd } from '@/domain/dates';
+import { SORT_KEYS, type SortDir, type SortKey } from '@/domain/sort';
 import type { DateKey, Member, Membership } from '@/domain/types';
 import { useDataStore } from '@/state/store';
 import type { SyncStore, TableName } from '@/sync/engine';
@@ -171,6 +172,34 @@ export async function getDefaultAmount(): Promise<number> {
 
 export async function setDefaultAmount(amount: number) {
   await setMeta('defaultAmount', String(amount));
+}
+
+/** Members list view preferences (local to this phone, not synced). */
+export interface ListPrefs {
+  view: 'cards' | 'table';
+  sortKey: SortKey;
+  sortDir: SortDir;
+}
+
+export const DEFAULT_LIST_PREFS: ListPrefs = { view: 'cards', sortKey: 'name', sortDir: 'asc' };
+
+export async function getListPrefs(): Promise<ListPrefs> {
+  const v = await getMeta('listPrefs');
+  if (!v) return DEFAULT_LIST_PREFS;
+  try {
+    const p = JSON.parse(v) as Partial<ListPrefs>;
+    return {
+      view: p.view === 'table' ? 'table' : 'cards',
+      sortKey: p.sortKey && SORT_KEYS.includes(p.sortKey) ? p.sortKey : DEFAULT_LIST_PREFS.sortKey,
+      sortDir: p.sortDir === 'desc' ? 'desc' : 'asc',
+    };
+  } catch {
+    return DEFAULT_LIST_PREFS;
+  }
+}
+
+export async function setListPrefs(prefs: ListPrefs) {
+  await setMeta('listPrefs', JSON.stringify(prefs));
 }
 
 export async function countPending(): Promise<number> {

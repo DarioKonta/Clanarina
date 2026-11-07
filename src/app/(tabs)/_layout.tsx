@@ -1,5 +1,6 @@
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { Tabs } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { t } from '@/i18n/sr';
 import { SyncPill } from '@/ui/SyncPill';
 import { colors } from '@/ui/theme';
@@ -13,6 +14,8 @@ const icon = (name: IconName) => {
 };
 
 export default function TabLayout() {
+  // Edge-to-edge: leave room for Android's navigation buttons / gesture bar.
+  const { bottom } = useSafeAreaInsets();
   return (
     <Tabs
       screenOptions={{
@@ -21,7 +24,12 @@ export default function TabLayout() {
         headerTintColor: colors.text,
         headerShadowVisible: false,
         headerRight: () => <SyncPill />,
-        tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.outline, height: 64 },
+        tabBarStyle: {
+          backgroundColor: colors.surface,
+          borderTopColor: colors.outline,
+          height: 64 + bottom,
+          paddingBottom: bottom,
+        },
         tabBarItemStyle: { paddingVertical: 6 },
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textMuted,

@@ -3,7 +3,7 @@
 Android app for tracking kickbox club membership payments (Serbian UI). It works offline and syncs with Google Sheets through a Google Apps Script web app.
 
 - **Stack:** Expo SDK 58 + React Native + TypeScript, expo-sqlite, React Native Paper, EAS Build (APK)
-- **Docs:** [CLAUDE.md](CLAUDE.md) (architecture, conventions), [SESSION_STATE.md](SESSION_STATE.md) (progress), [apps-script/README.md](apps-script/README.md) (Google Sheets setup)
+- **Docs:** [CLAUDE.md](CLAUDE.md) (architecture, conventions), [SESSION_STATE.md](SESSION_STATE.md) (progress), [apps-script/README.md](apps-script/README.md) (Google Sheets setup), [docs/secret-key.md](docs/secret-key.md) (secret key)
 
 ## Run on your phone (development)
 1. Install **Expo Go** from the Play Store.
@@ -22,7 +22,7 @@ npx eslint .
 ```
 
 ## Google Sheets sync
-Follow [apps-script/README.md](apps-script/README.md). Then enter the URL and the secret key in the app under **Podešavanja**.
+Follow [apps-script/README.md](apps-script/README.md). Then enter the URL and the secret key in the app under **Podešavanja**. See [docs/secret-key.md](docs/secret-key.md) for where to find the key, how to enter it, and how to change it.
 
 ## Build an APK
 ```bash
