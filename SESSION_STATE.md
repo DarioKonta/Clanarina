@@ -47,7 +47,7 @@ _Last updated: 2026-11-07_
 - [x] Accent color picker (Podešavanja → Izgled), saved per phone in `meta.accent`; status colors stay fixed
 - [x] v1.0.1 released (accent colors)
 - [x] In-app Google Sheets guide (`src/app/uputstvo.tsx`, text in `t.guide`), opened from Podešavanja
-- [x] Big feature batch (2026-11-07, not yet released):
+- [x] Big feature batch (2026-11-07), released as v1.1.0 (versionCode 3) on 2026-11-08:
   - Reminders (SMS / share sheet) on Dugovanja + member detail
   - Pregled tab (monthly money in, due/paid, total debt, 6-month chart)
   - Prisustvo tab (attendance per day, group filter) + per-member stats
@@ -58,7 +58,7 @@ _Last updated: 2026-11-07_
   - App icon (boxing glove, MDI) + dark splash (expo-splash-screen)
   - Sync schema 2: Code.gs header-driven columns, auto-adds missing ones, Prisustvo tab; app refuses older script (`outdated`)
 - [ ] User updates Code.gs in the Sheet (paste + Deploy → Manage deployments → New version)
-- [ ] Test the new features in Expo Go, then `npm run release -- minor` (v1.1.0)
+- [x] v1.1.0 released: https://github.com/DarioKonta/Clanarina/releases/tag/v1.1.0
 - [ ] Test install + update through Obtainium on own phone
 
 ## Open questions
@@ -71,8 +71,7 @@ _Last updated: 2026-11-07_
 ## Known gaps
 - No UI/component tests; only the logic is tested.
 - Code.gs was tested only against a mock, not the real Google runtime.
-- The default Expo icon and splash screen are still in place.
 
 ## Next step
-1. Update Code.gs in the Google Sheet (new version deploy). 2. Test the new features in Expo Go.
-3. `npm run release -- minor` → v1.1.0. Icon/splash only show in the built APK, not in Expo Go.
+Install v1.1.0 through Obtainium on a phone and check: sync works with the new Code.gs (new columns plus a Prisustvo tab appear in the Sheet), the icon and splash screen, SMS reminder, Excel export.
+Open questions: club logo for the icon, Latin vs Cyrillic script.
