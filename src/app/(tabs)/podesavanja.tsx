@@ -9,6 +9,8 @@ import { getDefaultAmount, setAccent, setDefaultAmount } from '@/db/repo';
 import { t } from '@/i18n/sr';
 import { useSyncStore, useUiStore } from '@/state/store';
 import { appsScriptTransport } from '@/sync/client';
+import { connectOutcome, keepsSettings } from '@/sync/connect';
+import type { SyncResponse } from '@/sync/protocol';
 import { refreshSyncInfo, syncNow } from '@/sync/service';
 import { exportToExcel } from '@/ui/exportExcel';
 import { isConfigured, loadSyncSettings, saveSyncSettings } from '@/sync/settings';
@@ -23,42 +25,57 @@ export default function SettingsScreen() {
   const [amount, setAmount] = useState('');
   const [urlError, setUrlError] = useState<string>();
   const [toast, setToast] = useState<string | null>(null);
-  const [testing, setTesting] = useState(false);
+  const [saved, setSaved] = useState({ url: '', secret: '' });
+  const [connecting, setConnecting] = useState(false);
   const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     loadSyncSettings().then((s) => {
       setUrl(s.url);
       setSecret(s.secret);
+      setSaved({ url: s.url.trim(), secret: s.secret.trim() });
     });
     getDefaultAmount().then((a) => setAmount(String(a)));
   }, []);
 
-  const save = async () => {
+  const unsaved = url.trim() !== saved.url || secret.trim() !== saved.secret;
+
+  /** One step: check the URL + key against the script, save them if they work, then sync. */
+  const connect = async () => {
     const s = { url: url.trim(), secret: secret.trim() };
     if (!isConfigured(s)) {
       setUrlError(t.settings.invalidUrl);
       return;
     }
     setUrlError(undefined);
-    await saveSyncSettings(s);
-    const a = parseAmount(amount);
-    if (a !== null) await setDefaultAmount(a);
-    await refreshSyncInfo();
-    setToast(t.settings.saved);
-    void syncNow();
-  };
-
-  const test = async () => {
-    setTesting(true);
+    setConnecting(true);
     try {
-      const res = await appsScriptTransport(url.trim())({ action: 'ping', secret: secret.trim() });
-      if (res.ok) setToast(t.settings.testOk);
-      else setToast(res.error === 'unauthorized' ? t.sync.errUnauthorized : `${t.sync.errServer}: ${res.error}`);
-    } catch {
-      setToast(t.sync.errNetwork);
+      let res: SyncResponse | null;
+      try {
+        res = await appsScriptTransport(s.url)({ action: 'ping', secret: s.secret });
+      } catch {
+        res = null;
+      }
+      const outcome = connectOutcome(res);
+      if (keepsSettings(outcome)) {
+        await saveSyncSettings(s);
+        setSaved(s);
+        await refreshSyncInfo();
+        if (outcome === 'ok') void syncNow();
+      }
+      setToast(
+        outcome === 'ok'
+          ? t.settings.connectOk
+          : outcome === 'outdated'
+            ? t.settings.connectOutdated
+            : outcome === 'offline'
+              ? t.settings.connectOffline
+              : outcome === 'unauthorized'
+                ? t.settings.connectUnauthorized
+                : t.settings.connectServer(res && !res.ok ? res.error : '?'),
+      );
     } finally {
-      setTesting(false);
+      setConnecting(false);
     }
   };
 
@@ -85,22 +102,6 @@ export default function SettingsScreen() {
           <Button mode="text" icon="help-circle-outline" onPress={() => router.push('/uputstvo')} style={styles.guideBtn}>
             {t.guide.open}
           </Button>
-          <View style={styles.statusBox}>
-            <Row label={t.settings.lastSync} value={lastSyncAt ? formatTimestamp(lastSyncAt) : t.settings.never} />
-            <Row label={t.settings.pending} value={String(pending)} />
-            {phase === 'error' && error ? <Text style={{ color: colors.owes }}>{error}</Text> : null}
-          </View>
-          <Button
-            mode="contained"
-            icon="sync"
-            onPress={() => syncNow()}
-            loading={phase === 'syncing'}
-            disabled={phase === 'syncing'}
-            contentStyle={styles.bigBtn}
-          >
-            {t.settings.syncNow}
-          </Button>
-
           <TextInput
             mode="outlined"
             label={t.settings.url}
@@ -122,14 +123,34 @@ export default function SettingsScreen() {
             secureTextEntry={!showSecret}
             right={<TextInput.Icon icon={showSecret ? 'eye-off' : 'eye'} onPress={() => setShowSecret((v) => !v)} />}
           />
-          <View style={styles.btnRow}>
-            <Button mode="outlined" onPress={test} loading={testing} disabled={testing || !url} style={{ flex: 1 }}>
-              {t.settings.test}
-            </Button>
-            <Button mode="contained-tonal" onPress={save} style={{ flex: 1 }}>
-              {t.common.save}
-            </Button>
+          {unsaved ? <HelperText type="error">{t.settings.unsaved}</HelperText> : null}
+          <Button
+            mode={unsaved ? 'contained' : 'contained-tonal'}
+            icon="link-variant"
+            onPress={connect}
+            loading={connecting}
+            disabled={connecting || !url.trim()}
+            contentStyle={styles.bigBtn}
+          >
+            {t.settings.connect}
+          </Button>
+
+          <View style={styles.syncGap} />
+          <View style={styles.statusBox}>
+            <Row label={t.settings.lastSync} value={lastSyncAt ? formatTimestamp(lastSyncAt) : t.settings.never} />
+            <Row label={t.settings.pending} value={String(pending)} />
+            {phase === 'error' && error ? <Text style={{ color: colors.owes }}>{error}</Text> : null}
           </View>
+          <Button
+            mode="contained"
+            icon="sync"
+            onPress={() => syncNow()}
+            loading={phase === 'syncing'}
+            disabled={phase === 'syncing'}
+            contentStyle={styles.bigBtn}
+          >
+            {t.settings.syncNow}
+          </Button>
         </Section>
 
         <Section title={t.settings.defaultsSection}>
@@ -237,10 +258,10 @@ const styles = StyleSheet.create({
   swatches: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   swatch: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
   swatchSelected: { borderWidth: 3, borderColor: colors.text },
+  syncGap: { height: 12 },
   statusBox: { padding: 14, borderRadius: 16, backgroundColor: colors.surface, gap: 8 },
   row: { flexDirection: 'row', justifyContent: 'space-between' },
   muted: { color: colors.textMuted },
   bigBtn: { height: 52 },
-  btnRow: { flexDirection: 'row', gap: 10, marginTop: 4 },
   guideBtn: { alignSelf: 'flex-start', marginLeft: -8 },
 });

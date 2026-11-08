@@ -9,7 +9,7 @@
    - *Execute as:* **Me**
    - *Who has access:* **Anyone**
    - Click **Deploy** and copy the **Web app URL** (it ends in `/exec`).
-5. In the app, open **Podešavanja**, enter the URL and the secret key, then tap **Proveri vezu** and **Sačuvaj**.
+5. In the app, open **Podešavanja**, enter the URL and the secret key, then tap **Poveži i sačuvaj** (it tests the connection and saves).
    Step-by-step guide with troubleshooting: [docs/secret-key.md](../docs/secret-key.md).
 
 ## After changing Code.gs (or when the app says the script is outdated)

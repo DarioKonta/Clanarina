@@ -14,6 +14,17 @@ Android app for tracking kickbox club membership payments (Serbian UI). It works
    ```
 3. Scan the QR code with Expo Go. The phone and PC must be on the same Wi-Fi; if they aren't, use `npx expo start --tunnel`.
 
+## Run on the computer (Android emulator)
+An emulator named **Clanarina** (Android 16, Pixel 7) is set up in `%LOCALAPPDATA%\Android\Sdk`, without Android Studio.
+1. Open a terminal in the project folder (it finds the Android SDK by itself; `scripts/android.mjs`).
+2. Run `npm run android`. It starts the emulator if it isn't running, installs Expo Go and opens the app.
+3. Edit code and save: the app reloads by itself in a second or two. No build needed.
+   In the terminal: `r` reloads, `m` opens the dev menu, `Ctrl+C` stops.
+
+Type with the PC keyboard. The emulator keeps its data between starts; to reset the app, long-press Expo Go → App info → Clear storage.
+If the app shows a red error such as *Cannot find native module* after it worked before, run `npm run android -- --clear` (rebuilds the bundler cache).
+A build (`npm run release`) is only needed to ship to phones, or to check the icon and splash screen.
+
 ## Tests
 ```bash
 npm test            # logic tests

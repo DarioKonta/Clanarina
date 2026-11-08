@@ -3,7 +3,7 @@
 _Last updated: 2026-11-08_
 
 ## Current phase
-**Phase 2: in use, released through GitHub + Obtainium.** Latest release: **v1.1.0** (versionCode 3, 2026-11-08). v1.0.x was tested on a real phone against a real Sheet; the v1.1.0 features have not been seen on a phone yet.
+**Phase 2: in use, released through GitHub + Obtainium.** Latest release: **v1.1.1** (2026-11-08). v1.0.x was tested on a real phone against a real Sheet; the v1.1.0 features have not been seen on a phone yet.
 
 ## Done
 - [x] Read the app idea and chose the stack and architecture (see `CLAUDE.md`)
@@ -65,6 +65,10 @@ _Last updated: 2026-11-08_
 - [x] User asked for the v1.1.0 release after being told to update Code.gs first (not explicitly confirmed; if sync says "zastarela", the script still needs updating)
 - [x] v1.1.0 released: https://github.com/DarioKonta/Clanarina/releases/tag/v1.1.0
 - [ ] Test install + update through Obtainium on own phone
+- [x] Code.gs updated by the user (browser check shows `schema:2`, 2026-11-08)
+- [x] Settings: one "Poveži i sačuvaj" button (tests, saves if OK/outdated/offline, then syncs) + "unsaved changes" hint; `src/sync/connect.ts` tested. Released in v1.1.1
+- [x] Android emulator set up on the dev PC without Android Studio: SDK in %LOCALAPPDATA%\Android\Sdk, AVD `Clanarina` (Android 36 Play Store, Pixel 7), `npm run android` (`scripts/android.mjs`, finds the SDK even without ANDROID_HOME/PATH) starts it + Expo Go (see README). Broken bundler cache ("Cannot find native module") → `npm run android -- --clear`
+- [x] Settings layout: URL, key and Poveži i sačuvaj on top; last sync + Sinhronizuj sada below (released in v1.1.1)
 
 ## Open questions
 - Is 3.000 RSD the right default price? (Per-member prices now exist.)
@@ -81,6 +85,6 @@ _Last updated: 2026-11-08_
 - Offline and two-phone tests are still open (see Roadmap).
 
 ## Next step
-Install v1.1.0 through Obtainium on a phone and check: sync works with the new Code.gs (new columns plus a Prisustvo tab appear in the Sheet), the icon and splash screen, SMS reminder, Excel export.
-If sync fails with "zastarela": update Code.gs (Extensions → Apps Script → paste → Deploy → Manage deployments → ✏️ → New version).
+Install v1.1.1 through Obtainium and check: Poveži i sačuvaj with the real URL/key, sync (new columns + Prisustvo tab in the Sheet), icon + splash, SMS reminder, Excel export.
+For development use `npm run android` (emulator, live reload); a build is only needed for releases.
 Next release: `npm run release -- patch|minor --notes "..."` (needs a clean git tree).

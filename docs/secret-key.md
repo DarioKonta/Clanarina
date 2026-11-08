@@ -33,9 +33,7 @@ Already deployed? Use **Deploy → Manage deployments** to copy it again.
 2. Under **Google Sheets sinhronizacija**:
    - **URL skripte** → paste the URL
    - **Tajni ključ** → paste the key
-3. Tap **Proveri vezu**. You should see **Veza radi ✔**.
-4. Tap **Sačuvaj podešavanja**.
-5. Optional: tap **Sinhronizuj sada** to sync right away.
+3. Tap **Poveži i sačuvaj**. You should see **Povezano ✔**; the settings are saved and a sync starts.
 
 Spaces before or after the values are removed automatically. The key is stored encrypted on the phone
 (`expo-secure-store`) and never appears in the code or in the Sheet.
