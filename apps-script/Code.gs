@@ -1,5 +1,5 @@
 /**
- * Kick box članarina — Google Apps Script backend.
+ * Članarina — Google Apps Script backend.
  *
  * Setup (once): open the Google Sheet → Extensions → Apps Script → paste this file →
  * run `setup` → copy the secret from the log → Deploy → New deployment → Web app
@@ -17,9 +17,14 @@
  *
  * Columns are matched by the header names in row 1, so their order doesn't matter.
  * Missing columns (e.g. after an app update) are appended automatically.
+ *
+ * The "Pregled članova" tab is a read-only view for trainers (who paid, until when).
+ * It is rebuilt after every push, when the file is opened, after hand edits, daily
+ * (trigger installed by `setup`) and from the menu Članarina → Osveži pregled.
  */
 
-var SCHEMA = 2;
+// 3 = adds the "Pregled članova" tab. The sync protocol is unchanged, so the app still accepts 2.
+var SCHEMA = 3;
 
 var TABLES = {
   members: {
@@ -58,6 +63,11 @@ function doPost(e) {
     if (body.action === 'ping') return json({ ok: true, serverTime: serverTime, schema: SCHEMA });
     if (body.action === 'push') {
       for (var table in TABLES) upsert(table, body[table] || [], serverTime);
+      try {
+        refreshOverview();
+      } catch (err) {
+        // The overview is cosmetic; never fail a sync because of it.
+      }
       return json({ ok: true, serverTime: serverTime, schema: SCHEMA });
     }
     if (body.action === 'pull') {
@@ -194,6 +204,302 @@ function readSince(table, since) {
     });
 }
 
+// ---------- read-only overview for trainers ----------
+
+var OVERVIEW_SHEET = 'Pregled članova';
+var EXPIRING_SOON_DAYS = 5; // keep in sync with src/domain/status.ts
+var MONTHS_SHORT = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'avg', 'sep', 'okt', 'nov', 'dec'];
+var OVERVIEW_HEADER = ['Ime i prezime', 'Grupa', 'Stanje', 'Plaćeno do', 'Objašnjenje', 'Telefon'];
+var OVERVIEW_WIDTHS = [200, 120, 150, 130, 300, 130];
+
+/** Sorted most urgent first. `bg` = row color, `fg` = status text color. */
+var OVERVIEW_KINDS = {
+  duguje: { label: '🔴 Duguje', bg: '#F8D7D5', fg: '#B71C1C', order: 0 },
+  isteklo: { label: '🟠 Isteklo', bg: '#FDE3C8', fg: '#BF5B00', order: 1 },
+  istice_uskoro: { label: '🟡 Ističe uskoro', bg: '#FFF4C2', fg: '#8D6E00', order: 2 },
+  placeno: { label: '🟢 Plaćeno', bg: '#DDF0DA', fg: '#1B5E20', order: 3 },
+  bez_clanarine: { label: '⚪ Nema članarinu', bg: '#F3F3F3', fg: '#616161', order: 4 },
+};
+
+/** Called from onOpen, the menu and the daily trigger: waits for a running sync, never throws. */
+function refreshOverviewSafely() {
+  var lock = null;
+  try {
+    lock = LockService.getScriptLock();
+    if (!lock.tryLock(20000)) return;
+  } catch (err) {
+    lock = null; // e.g. a simple trigger without lock access: refresh anyway
+  }
+  try {
+    refreshOverview();
+  } catch (err) {
+    // Viewers without edit rights can't rewrite the tab; ignore.
+  } finally {
+    if (lock) lock.releaseLock();
+  }
+}
+
+/** Rebuilds the "Pregled članova" tab from Clanovi + Clanarine. */
+function refreshOverview() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var tz = ss.getSpreadsheetTimeZone();
+  var now = new Date();
+  var today = Utilities.formatDate(now, tz, 'yyyy-MM-dd');
+  var plain = function (r) {
+    return r.obj;
+  };
+  var view = buildOverview(readAll('members').rows.map(plain), readAll('memberships').rows.map(plain), today);
+
+  var sh = ss.getSheetByName(OVERVIEW_SHEET);
+  if (!sh) sh = ss.insertSheet(OVERVIEW_SHEET, 0);
+  sh.clear();
+  var cols = OVERVIEW_HEADER.length;
+  if (sh.getMaxColumns() < cols) sh.insertColumnsAfter(sh.getMaxColumns(), cols - sh.getMaxColumns());
+  var needRows = 5 + Math.max(view.rows.length, 1);
+  if (sh.getMaxRows() < needRows) sh.insertRowsAfter(sh.getMaxRows(), needRows - sh.getMaxRows());
+
+  var c = view.counts;
+  var summary =
+    OVERVIEW_KINDS.duguje.label + ': ' + c.duguje + (view.totalDebt ? ' (ukupno ' + formatMoneyRsd(view.totalDebt) + ')' : '') +
+    '     ' + OVERVIEW_KINDS.isteklo.label + ': ' + c.isteklo +
+    '     ' + OVERVIEW_KINDS.istice_uskoro.label + ': ' + c.istice_uskoro +
+    '     ' + OVERVIEW_KINDS.placeno.label + ': ' + c.placeno;
+  sh.getRange(1, 1).setValue('Pregled članova').setFontSize(18).setFontWeight('bold');
+  sh.getRange(2, 1)
+    .setValue(
+      'Ažurirano: ' + formatDateKey(today) + ' u ' + Utilities.formatDate(now, tz, 'HH:mm') +
+        '  ·  Ova strana se sama osvežava iz aplikacije. Ne menjaj je ručno.',
+    )
+    .setFontColor('#757575')
+    .setFontStyle('italic');
+  sh.getRange(3, 1).setValue(summary).setFontSize(12).setFontWeight('bold');
+
+  var head = sh.getRange(5, 1, 1, cols);
+  head.setValues([OVERVIEW_HEADER]).setFontWeight('bold').setBackground('#424242').setFontColor('#FFFFFF');
+
+  var body = sh.getRange(6, 1, Math.max(view.rows.length, 1), cols);
+  body.setNumberFormat('@'); // keep leading zeros in phone numbers
+  if (view.rows.length) {
+    body.setValues(
+      view.rows.map(function (r) {
+        return [r.name, r.group, OVERVIEW_KINDS[r.kind].label, r.paidUntil, r.note, r.phone];
+      }),
+    );
+    body.setBackgrounds(
+      view.rows.map(function (r) {
+        var bg = OVERVIEW_KINDS[r.kind].bg;
+        return OVERVIEW_HEADER.map(function () {
+          return bg;
+        });
+      }),
+    );
+    sh.getRange(6, 3, view.rows.length, 1)
+      .setFontColors(
+        view.rows.map(function (r) {
+          return [OVERVIEW_KINDS[r.kind].fg];
+        }),
+      )
+      .setFontWeight('bold');
+    sh.getRange(6, 1, view.rows.length, 1).setFontWeight('bold');
+  } else {
+    sh.getRange(6, 1).setValue('Još nema članova.').setFontColor('#757575');
+  }
+  body.setFontSize(12).setVerticalAlignment('middle');
+  sh.getRange(5, 1, body.getNumRows() + 1, cols).setBorder(true, true, true, true, true, true, '#BDBDBD', null);
+  sh.setFrozenRows(5);
+  OVERVIEW_WIDTHS.forEach(function (w, i) {
+    sh.setColumnWidth(i + 1, w);
+  });
+  sh.setRowHeights(6, body.getNumRows(), 28);
+
+  // Warn (not block) anyone who tries to type here.
+  if (!sh.getProtections(SpreadsheetApp.ProtectionType.SHEET).length) {
+    sh.protect().setDescription('Pregled se pravi automatski').setWarningOnly(true);
+  }
+}
+
+/**
+ * Pure: members + memberships (sheet rows as strings) → overview rows, most urgent first.
+ * Mirrors memberStatus() in src/domain/status.ts. Archived and deleted members are left out.
+ */
+function buildOverview(members, memberships, today) {
+  var byMember = {};
+  memberships.forEach(function (m) {
+    if (isTruthy(m.deleted) || !isDateKey(m.periodStart)) return;
+    var months = Number(m.months) || 1;
+    var ms = {
+      start: m.periodStart,
+      end: isDateKey(m.periodEnd) ? m.periodEnd : periodEndKey(m.periodStart, months),
+      amount: Number(m.amount) || 0,
+      paid: isDateKey(m.paidAt),
+    };
+    (byMember[m.memberId] = byMember[m.memberId] || []).push(ms);
+  });
+
+  var counts = { duguje: 0, isteklo: 0, istice_uskoro: 0, placeno: 0, bez_clanarine: 0 };
+  var totalDebt = 0;
+  var rows = [];
+  members.forEach(function (mem) {
+    if (isTruthy(mem.deleted) || String(mem.active) === '0') return;
+    var s = overviewStatus(byMember[mem.id] || [], today);
+    counts[s.kind]++;
+    totalDebt += s.debt;
+    rows.push({
+      name: (String(mem.firstName || '') + ' ' + String(mem.lastName || '')).trim(),
+      group: String(mem.groupName || ''),
+      phone: String(mem.phone || ''),
+      kind: s.kind,
+      paidUntil: s.paidUntil ? formatDateKey(s.paidUntil) : '—',
+      note: s.note,
+      sortKey: s.sortKey,
+    });
+  });
+  rows.sort(function (a, b) {
+    var k = OVERVIEW_KINDS[a.kind].order - OVERVIEW_KINDS[b.kind].order;
+    if (k) return k;
+    if (a.sortKey !== b.sortKey) return a.sortKey < b.sortKey ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+  return { rows: rows, counts: counts, totalDebt: totalDebt };
+}
+
+/** One member's status with a plain-language explanation. */
+function overviewStatus(list, today) {
+  var paid = list.filter(function (m) {
+    return m.paid;
+  });
+  var lastPaidEnd = paid.reduce(function (acc, m) {
+    return !acc || m.end > acc ? m.end : acc;
+  }, null);
+  if (!list.length) {
+    return { kind: 'bez_clanarine', debt: 0, paidUntil: null, note: 'Još nije uneta nijedna članarina', sortKey: '' };
+  }
+
+  var unpaid = list
+    .filter(function (m) {
+      return !m.paid && m.start <= today;
+    })
+    .sort(function (a, b) {
+      return a.start < b.start ? -1 : a.start > b.start ? 1 : 0;
+    });
+  if (unpaid.length) {
+    var debt = unpaid.reduce(function (s, m) {
+      return s + m.amount;
+    }, 0);
+    var what = unpaid.length > 1 ? unpaid.length + ' članarine' : 'članarinu';
+    return {
+      kind: 'duguje',
+      debt: debt,
+      paidUntil: lastPaidEnd,
+      note: 'Treba da plati ' + formatMoneyRsd(debt) + ' (' + what + ' od ' + formatDateKey(unpaid[0].start) + ')',
+      sortKey: unpaid[0].start, // oldest debt first
+    };
+  }
+
+  // Paid coverage: walk forward from today through consecutive paid periods.
+  var cursor = today;
+  var covered = null;
+  for (;;) {
+    var next = null;
+    for (var i = 0; i < paid.length; i++) {
+      if (paid[i].start <= cursor && paid[i].end >= cursor) next = paid[i];
+    }
+    if (!next) break;
+    covered = next.end;
+    cursor = addDaysKey(covered, 1);
+  }
+  if (covered) {
+    var left = daysBetweenKeys(today, covered);
+    if (left <= EXPIRING_SOON_DAYS) {
+      var when = left === 0 ? 'Ističe danas' : left === 1 ? 'Ističe sutra' : 'Ističe za ' + daysText(left);
+      return { kind: 'istice_uskoro', debt: 0, paidUntil: covered, note: when + ', treba produžiti', sortKey: covered };
+    }
+    return { kind: 'placeno', debt: 0, paidUntil: covered, note: 'Sve u redu, još ' + daysText(left), sortKey: covered };
+  }
+
+  var ended = list
+    .map(function (m) {
+      return m.end;
+    })
+    .filter(function (e) {
+      return e < today;
+    })
+    .sort();
+  if (ended.length) {
+    var lastEnd = ended[ended.length - 1];
+    var ago = daysBetweenKeys(lastEnd, today);
+    return {
+      kind: 'isteklo',
+      debt: 0,
+      paidUntil: lastPaidEnd,
+      note: 'Isteklo pre ' + daysText(ago) + ', treba nova članarina',
+      sortKey: invertKey(lastEnd), // most recently expired first
+    };
+  }
+  return { kind: 'bez_clanarine', debt: 0, paidUntil: null, note: 'Članarina počinje kasnije', sortKey: '' };
+}
+
+/** 1 dan, 2 dana, 11 dana, 21 dan. */
+function daysText(n) {
+  return n + (n % 10 === 1 && n % 100 !== 11 ? ' dan' : ' dana');
+}
+
+function isTruthy(v) {
+  var s = String(v).toLowerCase();
+  return s === '1' || s === 'true';
+}
+
+function isDateKey(v) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
+}
+
+function keyToUtc(k) {
+  var p = k.split('-');
+  return Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+}
+
+function utcToKey(t) {
+  var d = new Date(t);
+  var pad = function (n) {
+    return (n < 10 ? '0' : '') + n;
+  };
+  return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate());
+}
+
+function addDaysKey(k, n) {
+  return utcToKey(keyToUtc(k) + n * 86400000);
+}
+
+function daysBetweenKeys(a, b) {
+  return Math.round((keyToUtc(b) - keyToUtc(a)) / 86400000);
+}
+
+/** start + months − 1 day, clamping the day like date-fns addMonths (31 Jan + 1 → 28 Feb). */
+function periodEndKey(start, months) {
+  var p = start.split('-');
+  var y = Number(p[0]);
+  var m = Number(p[1]) - 1 + months;
+  var d = Number(p[2]);
+  var daysInTarget = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+  return addDaysKey(utcToKey(Date.UTC(y, m, Math.min(d, daysInTarget))), -1);
+}
+
+/** Sort key that orders dates newest first. */
+function invertKey(k) {
+  return String(99999999 - Number(k.replace(/-/g, '')));
+}
+
+/** "2026-11-01" → "1. nov 2026." (same as the app). */
+function formatDateKey(k) {
+  var p = k.split('-');
+  return Number(p[2]) + '. ' + MONTHS_SHORT[Number(p[1]) - 1] + ' ' + p[0] + '.';
+}
+
+/** 3000 → "3.000 RSD". */
+function formatMoneyRsd(n) {
+  return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ' RSD';
+}
+
 // ---------- manual editing support ----------
 
 /**
@@ -234,6 +540,19 @@ function onEdit(e) {
     set('updatedAt', now);
     set('syncedAt', now);
   }
+  if (table !== 'attendance') {
+    try {
+      refreshOverview();
+    } catch (err) {
+      // Ignore: the next push/open/daily run refreshes it.
+    }
+  }
+}
+
+/** Simple trigger: adds the menu and refreshes the overview when the file is opened. */
+function onOpen() {
+  SpreadsheetApp.getUi().createMenu('Članarina').addItem('Osveži pregled', 'refreshOverviewSafely').addToUi();
+  refreshOverviewSafely();
 }
 
 // ---------- one-time setup ----------
@@ -247,5 +566,11 @@ function setup() {
     secret = Utilities.getUuid().replace(/-/g, '').slice(0, 20);
     props.setProperty('SECRET', secret);
   }
+  // Daily refresh so "ističe za N dana" stays right even when nobody syncs.
+  var hasDaily = ScriptApp.getProjectTriggers().some(function (t) {
+    return t.getHandlerFunction() === 'refreshOverviewSafely';
+  });
+  if (!hasDaily) ScriptApp.newTrigger('refreshOverviewSafely').timeBased().everyDays(1).atHour(4).create();
+  refreshOverview();
   Logger.log('Tajni ključ (unesi u aplikaciju): ' + secret);
 }

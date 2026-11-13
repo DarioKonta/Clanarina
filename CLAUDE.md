@@ -1,6 +1,6 @@
-# CLAUDE.md — Kick box članarina
+# CLAUDE.md — Članarina
 
-Android app for a kickbox club to track who has paid their membership (članarina).
+Android app for a sports club (any discipline) to track who has paid their membership (članarina).
 It's used by a few people and installed as an APK, not through the Play Store. See `App idea.txt` for the original brief,
 `SESSION_STATE.md` for current progress, and `AGENTS.md` for Expo-specific agent rules.
 
@@ -89,6 +89,9 @@ amount (whole RSD), paidAt (`YYYY-MM-DD` or null), note?, createdAt, updatedAt, 
 - Sync is triggered by app start, returning to the foreground, coming back online, 3 s after a local edit, the header pill and the settings button.
 - Deletes are soft (`deleted = 1`).
 - In the sheet, cells are plain text and `onEdit` stamps rows edited by hand.
+- The **Pregled članova** tab is a read-only view for trainers, built by `refreshOverview()` in Code.gs (after push, on open,
+  after hand edits, daily and from the menu). `buildOverview()` mirrors `memberStatus()`, and `src/domain/sheetOverview.test.ts`
+  checks they agree. Change both together. It's not synced, so changing it doesn't need a `MIN_SERVER_SCHEMA` bump.
 - Code.gs matches columns by header name and appends missing ones. Every response has `schema`; the app requires
   `MIN_SERVER_SCHEMA` (`src/sync/protocol.ts`) and otherwise fails with `outdated` *before* clearing dirty rows.
   Adding synced fields/tables = bump `SCHEMA` in Code.gs **and** `MIN_SERVER_SCHEMA`, and tell users to update the script.

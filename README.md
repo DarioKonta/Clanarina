@@ -1,6 +1,6 @@
-# Kick box članarina
+# Članarina
 
-Android app for tracking kickbox club membership payments (Serbian UI). It works offline and syncs with Google Sheets through a Google Apps Script web app.
+Android app for tracking sports club membership payments, for any discipline. The UI is in Serbian. It works offline and syncs with Google Sheets through a Google Apps Script web app.
 
 - **Stack:** Expo SDK 58 + React Native + TypeScript, expo-sqlite, React Native Paper, EAS Build (APK)
 - **Docs:** [CLAUDE.md](CLAUDE.md) (architecture, conventions), [SESSION_STATE.md](SESSION_STATE.md) (progress), [apps-script/README.md](apps-script/README.md) (Google Sheets setup), [docs/secret-key.md](docs/secret-key.md) (secret key)

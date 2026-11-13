@@ -39,8 +39,8 @@ export const t = {
     noPhone: 'Član nema broj telefona – poruka se može poslati preko Vibera ili druge aplikacije.',
     message: (firstName: string, amount: string, since: string, count: number) =>
       count > 1
-        ? `Zdravo ${firstName}, podsećamo te da imaš ${count} neplaćene članarine za kik boks (od ${since}), ukupno ${amount}. Hvala!`
-        : `Zdravo ${firstName}, podsećamo te da članarina za kik boks od ${since} (${amount}) još nije plaćena. Hvala!`,
+        ? `Zdravo ${firstName}, podsećamo te da imaš ${count} neplaćene članarine (od ${since}), ukupno ${amount}. Hvala!`
+        : `Zdravo ${firstName}, podsećamo te da članarina od ${since} (${amount}) još nije plaćena. Hvala!`,
   },
   undo: {
     action: 'Poništi',
@@ -238,7 +238,7 @@ export const t = {
     },
     defaultAmount: 'Podrazumevani iznos (RSD)',
     aboutSection: 'O aplikaciji',
-    about: 'Evidencija članarina za kik boks klub. Podaci se čuvaju na telefonu i sinhronizuju sa Google Sheets tabelom.',
+    about: 'Evidencija članarina za sportski klub. Podaci se čuvaju na telefonu i sinhronizuju sa Google Sheets tabelom.',
     version: 'Verzija',
     invalidUrl: 'URL mora početi sa https://script.google.com/ i završavati se sa /exec',
   },
@@ -251,7 +251,7 @@ export const t = {
     steps: [
       {
         title: 'Napravi tabelu',
-        body: 'Na računaru otvori sheets.google.com → «Blank spreadsheet» (prazna tabela). Nazovi je npr. «Članarine kik boks».',
+        body: 'Na računaru otvori sheets.google.com → «Blank spreadsheet» (prazna tabela). Nazovi je npr. «Članarine».',
       },
       {
         title: 'Dodaj skriptu',
@@ -259,7 +259,7 @@ export const t = {
       },
       {
         title: 'Pokreni setup',
-        body: 'U traci iznad koda izaberi funkciju «setup» i klikni «Run». Prvi put Google traži dozvolu: «Review permissions» → izaberi nalog → «Advanced» → «Go to … (unsafe)» → «Allow». U tabeli se pojavljuju listovi Clanovi i Clanarine.',
+        body: 'U traci iznad koda izaberi funkciju «setup» i klikni «Run». Prvi put Google traži dozvolu: «Review permissions» → izaberi nalog → «Advanced» → «Go to … (unsafe)» → «Allow». U tabeli se pojavljuju listovi Clanovi, Clanarine i Prisustvo, kao i «Pregled članova»: pregledna lista za trenere (ko je platio i do kada), koja se sama osvežava.',
       },
       {
         title: 'Kopiraj tajni ključ',
