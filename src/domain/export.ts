@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx';
 import { t } from '@/i18n/sr';
 import { fullName } from './format';
-import type { Attendance, Member, Membership } from './types';
+import type { Attendance, Member, Membership, Segment } from './types';
 
 export type Cell = string | number;
 export interface ExportSheet {
@@ -12,7 +12,12 @@ export interface ExportSheet {
 const byName = (a: Member, b: Member) => fullName(a).localeCompare(fullName(b), 'sr-Latn');
 
 /** Spreadsheet-ready tables (header row first) for the Excel export. Deleted rows are left out. */
-export function buildExport(members: Member[], memberships: Membership[], attendance: Attendance[]): ExportSheet[] {
+export function buildExport(
+  members: Member[],
+  segments: Segment[],
+  memberships: Membership[],
+  attendance: Attendance[],
+): ExportSheet[] {
   const h = t.export.headers;
   const live = members.filter((m) => !m.deleted).sort(byName);
   const nameOf = new Map(members.map((m) => [m.id, fullName(m)]));
@@ -33,6 +38,14 @@ export function buildExport(members: Member[], memberships: Membership[], attend
     ]),
   ];
 
+  const segmentRows: Cell[][] = [
+    [h.member, h.periodStart, h.pausedAt],
+    ...segments
+      .filter((s) => !s.deleted)
+      .sort((a, b) => name(a.memberId).localeCompare(name(b.memberId)) || b.startDate.localeCompare(a.startDate))
+      .map((s) => [name(s.memberId), s.startDate, s.endDate ?? '']),
+  ];
+
   const membershipRows: Cell[][] = [
     [h.member, h.periodStart, h.periodEnd, h.months, h.amount, h.paidAt, h.note],
     ...memberships
@@ -51,6 +64,7 @@ export function buildExport(members: Member[], memberships: Membership[], attend
 
   return [
     { name: t.export.sheetMembers, rows: membersRows },
+    { name: t.export.sheetSegments, rows: segmentRows },
     { name: t.export.sheetMemberships, rows: membershipRows },
     { name: t.export.sheetAttendance, rows: attendanceRows },
   ];

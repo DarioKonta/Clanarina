@@ -24,8 +24,8 @@ export interface Sortable {
 const STATUS_RANK: Record<MemberStatusKind, number> = {
   duguje: 0,
   istice_uskoro: 1,
-  isteklo: 2,
-  bez_clanarine: 3,
+  bez_clanarine: 2,
+  pauza: 3,
   placeno: 4,
 };
 
@@ -35,8 +35,6 @@ export function validUntil(s: MemberStatus): DateKey | null {
     case 'placeno':
     case 'istice_uskoro':
       return s.until;
-    case 'isteklo':
-      return s.lastEnd;
     default:
       return null;
   }

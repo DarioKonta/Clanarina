@@ -2,47 +2,13 @@ import { countInMonth, lastAttended, presentOn } from './attendance';
 import { ageOn, isBirthday, monthOf, shiftMonth } from './dates';
 import * as XLSX from 'xlsx';
 import { buildExport, toXlsxBase64 } from './export';
-import { suggestAmount } from './pricing';
+import { buildMonths } from './months';
 import { cleanPhone, smsUrl } from './reminder';
 import { collectedByMonth, monthSummary } from './summary';
-import type { Attendance, Member, Membership } from './types';
+import { pay, seg, member } from './testing';
+import type { Attendance } from './types';
 
 const TS = '2026-01-01T00:00:00.000Z';
-
-function member(p: Partial<Member> = {}): Member {
-  return {
-    id: 'm1',
-    firstName: 'Marko',
-    lastName: 'Petrović',
-    phone: null,
-    note: null,
-    groupName: null,
-    price: null,
-    birthDate: null,
-    joinedAt: null,
-    active: true,
-    createdAt: TS,
-    updatedAt: TS,
-    deleted: false,
-    ...p,
-  };
-}
-
-function ms(p: Partial<Membership> & Pick<Membership, 'periodStart'>): Membership {
-  return {
-    id: Math.random().toString(36).slice(2),
-    memberId: 'm1',
-    months: 1,
-    periodEnd: '',
-    amount: 3000,
-    paidAt: null,
-    note: null,
-    createdAt: TS,
-    updatedAt: TS,
-    deleted: false,
-    ...p,
-  };
-}
 
 function att(memberId: string, date: string, deleted = false): Attendance {
   return { id: `${memberId}-${date}`, memberId, date, createdAt: TS, updatedAt: TS, deleted };
@@ -72,14 +38,6 @@ describe('birthdays', () => {
   test('ageOn counts completed years', () => {
     expect(ageOn('2015-11-07', '2026-11-07')).toBe(11);
     expect(ageOn('2015-11-08', '2026-11-07')).toBe(10);
-  });
-});
-
-describe('suggestAmount', () => {
-  test('member price wins over the default, times months', () => {
-    expect(suggestAmount(null, 3000, 1)).toBe(3000);
-    expect(suggestAmount(2500, 3000, 3)).toBe(7500);
-    expect(suggestAmount(0, 3000, 2)).toBe(0);
   });
 });
 
@@ -120,20 +78,37 @@ describe('attendance', () => {
 describe('monthSummary', () => {
   const members = [
     member({ id: 'a', joinedAt: '2026-11-02' }),
-    member({ id: 'b', createdAt: '2026-11-04T10:00:00.000Z' }),
+    member({ id: 'b', createdAt: '2026-11-04T10:00:00.000Z', price: 2500 }),
     member({ id: 'c', joinedAt: '2026-10-01' }),
     member({ id: 'd', joinedAt: '2026-11-03', deleted: true }),
   ];
-  const memberships = [
-    ms({ memberId: 'a', periodStart: '2026-11-01', paidAt: '2026-11-01', amount: 3000 }),
-    ms({ memberId: 'b', periodStart: '2026-11-01', paidAt: null, amount: 2500 }),
-    // October period paid late in November: counts as cash in November.
-    ms({ memberId: 'c', periodStart: '2026-10-01', paidAt: '2026-11-10', amount: 3000 }),
-    ms({ memberId: 'c', periodStart: '2026-11-01', paidAt: null, amount: 3000, deleted: true }),
+  const segments = [
+    seg({ memberId: 'a', startDate: '2026-11-01' }),
+    seg({ memberId: 'b', startDate: '2026-11-01' }),
+    // Paused on 1 Nov: no November month.
+    seg({ memberId: 'c', startDate: '2026-10-01', endDate: '2026-11-01' }),
+    seg({ memberId: 'd', startDate: '2026-11-01' }),
   ];
+  const payments = [
+    pay({ memberId: 'a', periodStart: '2026-11-01', periodEnd: '2026-11-30', paidAt: '2026-11-01' }),
+    // October month paid late in November: counts as cash in November.
+    pay({ memberId: 'c', periodStart: '2026-10-01', periodEnd: '2026-10-31', paidAt: '2026-11-10' }),
+    pay({ memberId: 'b', periodStart: '2026-11-01', periodEnd: '2026-11-30', paidAt: '2026-11-02', deleted: true }),
+  ];
+  const slotsBy = new Map(
+    members.map((m) => [
+      m.id,
+      buildMonths(
+        segments.filter((s) => s.memberId === m.id),
+        payments.filter((p) => p.memberId === m.id),
+        m.price ?? 3000,
+        '2026-11-15',
+      ),
+    ]),
+  );
 
-  test('cash in, due periods and new members for a month', () => {
-    expect(monthSummary(members, memberships, '2026-11')).toEqual({
+  test('cash in, due months and new members for a month', () => {
+    expect(monthSummary(members, slotsBy, payments, '2026-11')).toEqual({
       month: '2026-11',
       collected: 6000,
       paymentsCount: 2,
@@ -146,7 +121,7 @@ describe('monthSummary', () => {
   });
 
   test('collectedByMonth returns the last n months, oldest first', () => {
-    expect(collectedByMonth(memberships, '2026-11', 3)).toEqual([
+    expect(collectedByMonth(payments, '2026-11', 3)).toEqual([
       { month: '2026-09', collected: 0 },
       { month: '2026-10', collected: 0 },
       { month: '2026-11', collected: 6000 },
@@ -155,33 +130,38 @@ describe('monthSummary', () => {
 });
 
 describe('buildExport', () => {
-  test('three sheets with headers and readable rows; deleted rows left out', () => {
+  test('four sheets with headers and readable rows; deleted rows left out', () => {
     const sheets = buildExport(
       [
         member({ id: 'a', firstName: 'Ana', lastName: 'Anić', groupName: 'Deca', price: 2500, phone: '064' }),
         member({ id: 'z', firstName: 'Obrisan', deleted: true }),
       ],
-      [ms({ memberId: 'a', periodStart: '2026-11-01', periodEnd: '2026-11-30', paidAt: '2026-11-02' })],
+      [
+        seg({ memberId: 'a', startDate: '2026-12-01', endDate: '2027-01-01' }),
+        seg({ memberId: 'a', startDate: '2027-02-15' }),
+        seg({ memberId: 'a', startDate: '2020-01-01', deleted: true }),
+      ],
+      [pay({ memberId: 'a', periodStart: '2026-12-01', periodEnd: '2026-12-31', paidAt: '2026-12-02' })],
       [att('a', '2026-11-05'), att('a', '2026-11-06', true)],
     );
-    expect(sheets.map((s) => s.name)).toEqual(['Članovi', 'Članarine', 'Prisustvo']);
-    const [membersSheet, membershipsSheet, attendanceSheet] = sheets;
+    expect(sheets.map((s) => s.name)).toEqual(['Članovi', 'Periodi', 'Uplate', 'Prisustvo']);
+    const [membersSheet, segmentsSheet, paymentsSheet, attendanceSheet] = sheets;
     expect(membersSheet.rows).toHaveLength(2);
     expect(membersSheet.rows[1]).toEqual(expect.arrayContaining(['Ana', 'Anić', '064', 'Deca', 2500]));
-    expect(membershipsSheet.rows[1]).toEqual(['Ana Anić', '2026-11-01', '2026-11-30', 1, 3000, '2026-11-02', '']);
+    expect(segmentsSheet.rows.slice(1)).toEqual([
+      ['Ana Anić', '2027-02-15', ''],
+      ['Ana Anić', '2026-12-01', '2027-01-01'],
+    ]);
+    expect(paymentsSheet.rows[1]).toEqual(['Ana Anić', '2026-12-01', '2026-12-31', 1, 3000, '2026-12-02', '']);
     expect(attendanceSheet.rows).toEqual([attendanceSheet.rows[0], ['2026-11-05', 'Ana Anić']]);
   });
 });
 
 describe('toXlsxBase64', () => {
   test('produces a real workbook that reads back with the same data', () => {
-    const sheets = buildExport(
-      [member({ id: 'a', firstName: 'Đorđe', lastName: 'Čolić', price: 2500 })],
-      [ms({ memberId: 'a', periodStart: '2026-11-01', periodEnd: '2026-11-30', paidAt: null })],
-      [],
-    );
+    const sheets = buildExport([member({ id: 'a', firstName: 'Đorđe', lastName: 'Čolić', price: 2500 })], [], [], []);
     const wb = XLSX.read(toXlsxBase64(sheets), { type: 'base64' });
-    expect(wb.SheetNames).toEqual(['Članovi', 'Članarine', 'Prisustvo']);
+    expect(wb.SheetNames).toEqual(['Članovi', 'Periodi', 'Uplate', 'Prisustvo']);
     const rows = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets['Članovi'], { header: 1 });
     expect(rows[1]).toEqual(expect.arrayContaining(['Đorđe', 'Čolić', 2500]));
   });
