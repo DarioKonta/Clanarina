@@ -1,4 +1,4 @@
-import { countPending, sqliteSyncStore } from '@/db/repo';
+import { countPending, getDefaultAmount, sqliteSyncStore } from '@/db/repo';
 import { getMeta } from '@/db/database';
 import { t } from '@/i18n/sr';
 import { useSyncStore } from '@/state/store';
@@ -50,7 +50,7 @@ export function syncNow(opts: { silent?: boolean } = {}): Promise<void> {
 
     store.set({ phase: 'syncing', error: null, configured: true });
     try {
-      await runSync(sqliteSyncStore, appsScriptTransport(settings.url), settings.secret);
+      await runSync(sqliteSyncStore, appsScriptTransport(settings.url), settings.secret, await getDefaultAmount());
       useSyncStore.getState().set({ phase: 'ok' });
     } catch (e) {
       useSyncStore.getState().set({ phase: 'error', error: errorMessage(e) });

@@ -1,7 +1,8 @@
 import { randomUUID } from 'expo-crypto';
-import { periodEnd } from '@/domain/dates';
+import { periodEnd, todayKey } from '@/domain/dates';
+import { paymentId } from '@/domain/months';
 import { SORT_KEYS, type SortDir, type SortKey } from '@/domain/sort';
-import type { Attendance, DateKey, Member, Membership } from '@/domain/types';
+import type { Attendance, DateKey, Member, Membership, Segment } from '@/domain/types';
 import { useDataStore } from '@/state/store';
 import { DEFAULT_ACCENT, isAccentKey, type AccentKey } from '@/ui/theme';
 import type { SyncStore, TableName } from '@/sync/engine';
@@ -10,6 +11,17 @@ import { db, getMeta, setMeta } from './database';
 type MemberRow = Omit<Member, 'active' | 'deleted'> & { active: number; deleted: number; dirty: number };
 type MembershipRow = Omit<Membership, 'deleted'> & { deleted: number; dirty: number };
 type AttendanceRow = Omit<Attendance, 'deleted'> & { deleted: number; dirty: number };
+type SegmentRow = Omit<Segment, 'deleted'> & { deleted: number; dirty: number };
+
+const toSegment = (r: SegmentRow): Segment => ({
+  id: r.id,
+  memberId: r.memberId,
+  startDate: r.startDate,
+  endDate: r.endDate ?? null,
+  createdAt: r.createdAt,
+  updatedAt: r.updatedAt,
+  deleted: r.deleted === 1,
+});
 
 const toMember = (r: MemberRow): Member => ({
   id: r.id,
@@ -73,25 +85,29 @@ export type MemberFields = Pick<
   'firstName' | 'lastName' | 'phone' | 'note' | 'groupName' | 'price' | 'birthDate' | 'joinedAt'
 >;
 
-export async function createMember(fields: MemberFields): Promise<string> {
+/** Creates a member and their first billing segment starting on `startDate`. */
+export async function createMember(fields: MemberFields, startDate: DateKey): Promise<string> {
   const id = randomUUID();
   const ts = nowIso();
-  await db.runAsync(
-    `INSERT INTO members (id, firstName, lastName, phone, note, groupName, price, birthDate, joinedAt,
-                          active, createdAt, updatedAt, deleted, dirty)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, 0, 1)`,
-    id,
-    fields.firstName,
-    fields.lastName,
-    fields.phone,
-    fields.note,
-    fields.groupName,
-    fields.price,
-    fields.birthDate,
-    fields.joinedAt,
-    ts,
-    ts,
-  );
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      `INSERT INTO members (id, firstName, lastName, phone, note, groupName, price, birthDate, joinedAt,
+                            active, createdAt, updatedAt, deleted, dirty)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, 0, 1)`,
+      id,
+      fields.firstName,
+      fields.lastName,
+      fields.phone,
+      fields.note,
+      fields.groupName,
+      fields.price,
+      fields.birthDate,
+      fields.joinedAt,
+      ts,
+      ts,
+    );
+    await insertSegment(id, startDate, ts);
+  });
   changed();
   return id;
 }
@@ -111,22 +127,28 @@ export async function updateMember(id: string, fields: Partial<MemberFields & { 
     nowIso(),
     id,
   );
+  // Archived members are not billed.
+  if (fields.active === false) await closeOpenSegment(id, todayKey());
   changed();
 }
 
-/** Soft-deletes a member and their memberships. Returns the membership ids, for undo. */
+/** Soft-deletes a member with their payments and segments. Returns those row ids, for undo. */
 export async function deleteMember(id: string): Promise<string[]> {
   const rows = await db.getAllAsync<{ id: string }>(
-    'SELECT id FROM memberships WHERE memberId = ? AND deleted = 0',
+    `SELECT id FROM memberships WHERE memberId = ? AND deleted = 0
+     UNION ALL SELECT id FROM segments WHERE memberId = ? AND deleted = 0`,
+    id,
     id,
   );
   const ts = nowIso();
   await db.withTransactionAsync(async () => {
-    await db.runAsync(
-      'UPDATE memberships SET deleted = 1, updatedAt = ?, dirty = 1 WHERE memberId = ? AND deleted = 0',
-      ts,
-      id,
-    );
+    for (const table of ['memberships', 'segments']) {
+      await db.runAsync(
+        `UPDATE ${table} SET deleted = 1, updatedAt = ?, dirty = 1 WHERE memberId = ? AND deleted = 0`,
+        ts,
+        id,
+      );
+    }
     await db.runAsync('UPDATE members SET deleted = 1, updatedAt = ?, dirty = 1 WHERE id = ?', ts, id);
   });
   changed();
@@ -134,12 +156,14 @@ export async function deleteMember(id: string): Promise<string[]> {
 }
 
 /** Undo for `deleteMember`. */
-export async function restoreMember(id: string, membershipIds: string[]) {
+export async function restoreMember(id: string, rowIds: string[]) {
   const ts = nowIso();
   await db.withTransactionAsync(async () => {
     await db.runAsync('UPDATE members SET deleted = 0, updatedAt = ?, dirty = 1 WHERE id = ?', ts, id);
-    for (const mid of membershipIds) {
-      await db.runAsync('UPDATE memberships SET deleted = 0, updatedAt = ?, dirty = 1 WHERE id = ?', ts, mid);
+    for (const rid of rowIds) {
+      for (const table of ['memberships', 'segments']) {
+        await db.runAsync(`UPDATE ${table} SET deleted = 0, updatedAt = ?, dirty = 1 WHERE id = ?`, ts, rid);
+      }
     }
   });
   changed();
@@ -154,9 +178,92 @@ export async function listGroups(): Promise<string[]> {
   return rows.map((r) => r.groupName);
 }
 
-// ---------- Memberships ----------
+// ---------- Segments (billing start / pause) ----------
 
-export async function listMemberships(memberId?: string): Promise<Membership[]> {
+async function insertSegment(memberId: string, startDate: DateKey, ts: string): Promise<string> {
+  const id = randomUUID();
+  await db.runAsync(
+    `INSERT INTO segments (id, memberId, startDate, endDate, createdAt, updatedAt, deleted, dirty)
+     VALUES (?, ?, ?, NULL, ?, ?, 0, 1)`,
+    id,
+    memberId,
+    startDate,
+    ts,
+    ts,
+  );
+  return id;
+}
+
+/** Sets the pause date on the running segment (never before its start). Returns its id. */
+async function closeOpenSegment(memberId: string, date: DateKey): Promise<string | null> {
+  const open = await db.getFirstAsync<{ id: string }>(
+    'SELECT id FROM segments WHERE memberId = ? AND deleted = 0 AND endDate IS NULL ORDER BY startDate DESC LIMIT 1',
+    memberId,
+  );
+  if (!open) return null;
+  await db.runAsync(
+    'UPDATE segments SET endDate = MAX(startDate, ?), updatedAt = ?, dirty = 1 WHERE id = ?',
+    date,
+    nowIso(),
+    open.id,
+  );
+  return open.id;
+}
+
+export async function listSegments(memberId?: string): Promise<Segment[]> {
+  const rows = memberId
+    ? await db.getAllAsync<SegmentRow>(
+        'SELECT * FROM segments WHERE deleted = 0 AND memberId = ? ORDER BY startDate',
+        memberId,
+      )
+    : await db.getAllAsync<SegmentRow>('SELECT * FROM segments WHERE deleted = 0 ORDER BY startDate');
+  return rows.map(toSegment);
+}
+
+/** "Pauziraj": billing stops from `date` (default today). Returns the segment id, for undo. */
+export async function pauseMember(memberId: string, date: DateKey = todayKey()): Promise<string | null> {
+  const id = await closeOpenSegment(memberId, date);
+  changed();
+  return id;
+}
+
+/** Undo for `pauseMember`. */
+export async function reopenSegment(id: string) {
+  await db.runAsync('UPDATE segments SET endDate = NULL, updatedAt = ?, dirty = 1 WHERE id = ?', nowIso(), id);
+  changed();
+}
+
+/** "Nastavi": a new segment; months run from `startDate`. */
+export async function resumeMember(memberId: string, startDate: DateKey): Promise<string> {
+  const id = await insertSegment(memberId, startDate, nowIso());
+  changed();
+  return id;
+}
+
+export async function updateSegment(id: string, dates: { startDate: DateKey; endDate: DateKey | null }) {
+  await db.runAsync(
+    'UPDATE segments SET startDate = ?, endDate = ?, updatedAt = ?, dirty = 1 WHERE id = ?',
+    dates.startDate,
+    dates.endDate,
+    nowIso(),
+    id,
+  );
+  changed();
+}
+
+export async function setSegmentDeleted(id: string, deleted: boolean) {
+  await db.runAsync(
+    'UPDATE segments SET deleted = ?, updatedAt = ?, dirty = 1 WHERE id = ?',
+    deleted ? 1 : 0,
+    nowIso(),
+    id,
+  );
+  changed();
+}
+
+// ---------- Payments (memberships table) ----------
+
+export async function listPayments(memberId?: string): Promise<Membership[]> {
   const rows = memberId
     ? await db.getAllAsync<MembershipRow>(
         'SELECT * FROM memberships WHERE deleted = 0 AND memberId = ? ORDER BY periodStart DESC',
@@ -166,34 +273,32 @@ export async function listMemberships(memberId?: string): Promise<Membership[]> 
   return rows.map(toMembership);
 }
 
-export async function getMembership(id: string): Promise<Membership | null> {
-  const row = await db.getFirstAsync<MembershipRow>('SELECT * FROM memberships WHERE id = ?', id);
-  return row ? toMembership(row) : null;
-}
-
-export interface NewMembership {
-  memberId: string;
-  periodStart: DateKey;
-  months: number;
-  amount: number;
-  paidAt: DateKey | null;
-  note: string | null;
-}
-
-export async function createMembership(input: NewMembership): Promise<string> {
-  const id = randomUUID();
+/**
+ * Records a payment for `months` months from the grid month starting at `periodStart`.
+ * The id is derived from member + month, so paying the same month on two phones yields one row.
+ */
+export async function payMonths(
+  memberId: string,
+  periodStart: DateKey,
+  months: number,
+  amount: number,
+  paidAt: DateKey,
+): Promise<string> {
+  const id = paymentId(memberId, periodStart);
   const ts = nowIso();
   await db.runAsync(
-    `INSERT INTO memberships (id, memberId, periodStart, months, periodEnd, amount, paidAt, note, createdAt, updatedAt, deleted, dirty)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)`,
+    `INSERT INTO memberships (id, memberId, periodStart, months, periodEnd, amount, paidAt, note,
+                              createdAt, updatedAt, deleted, dirty)
+     VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, 0, 1)
+     ON CONFLICT(id) DO UPDATE SET months = excluded.months, periodEnd = excluded.periodEnd,
+       amount = excluded.amount, paidAt = excluded.paidAt, deleted = 0, updatedAt = excluded.updatedAt, dirty = 1`,
     id,
-    input.memberId,
-    input.periodStart,
-    input.months,
-    periodEnd(input.periodStart, input.months),
-    input.amount,
-    input.paidAt,
-    input.note,
+    memberId,
+    periodStart,
+    months,
+    periodEnd(periodStart, months),
+    amount,
+    paidAt,
     ts,
     ts,
   );
@@ -201,42 +306,14 @@ export async function createMembership(input: NewMembership): Promise<string> {
   return id;
 }
 
-/** Record a (possibly late) payment. The period itself never moves. */
-export async function markPaid(id: string, paidAt: DateKey, amount: number) {
+/** Soft-deletes (undoes) a payment, or restores it. */
+export async function setPaymentDeleted(id: string, deleted: boolean) {
   await db.runAsync(
-    'UPDATE memberships SET paidAt = ?, amount = ?, updatedAt = ?, dirty = 1 WHERE id = ?',
-    paidAt,
-    amount,
+    'UPDATE memberships SET deleted = ?, updatedAt = ?, dirty = 1 WHERE id = ?',
+    deleted ? 1 : 0,
     nowIso(),
     id,
   );
-  changed();
-}
-
-/** Sets payment date and amount exactly (used to undo a payment change). */
-export async function setPayment(id: string, paidAt: DateKey | null, amount: number) {
-  await db.runAsync(
-    'UPDATE memberships SET paidAt = ?, amount = ?, updatedAt = ?, dirty = 1 WHERE id = ?',
-    paidAt,
-    amount,
-    nowIso(),
-    id,
-  );
-  changed();
-}
-
-export async function markUnpaid(id: string) {
-  await db.runAsync('UPDATE memberships SET paidAt = NULL, updatedAt = ?, dirty = 1 WHERE id = ?', nowIso(), id);
-  changed();
-}
-
-export async function deleteMembership(id: string) {
-  await db.runAsync('UPDATE memberships SET deleted = 1, updatedAt = ?, dirty = 1 WHERE id = ?', nowIso(), id);
-  changed();
-}
-
-export async function restoreMembership(id: string) {
-  await db.runAsync('UPDATE memberships SET deleted = 0, updatedAt = ?, dirty = 1 WHERE id = ?', nowIso(), id);
   changed();
 }
 
@@ -336,7 +413,7 @@ export async function setListPrefs(prefs: ListPrefs) {
 export async function countPending(): Promise<number> {
   const row = await db.getFirstAsync<{ n: number }>(
     `SELECT (SELECT COUNT(*) FROM members WHERE dirty = 1) + (SELECT COUNT(*) FROM memberships WHERE dirty = 1)
-          + (SELECT COUNT(*) FROM attendance WHERE dirty = 1) AS n`,
+          + (SELECT COUNT(*) FROM attendance WHERE dirty = 1) + (SELECT COUNT(*) FROM segments WHERE dirty = 1) AS n`,
   );
   return row?.n ?? 0;
 }
@@ -349,10 +426,12 @@ const MEMBERSHIP_COLS = [
   'id', 'memberId', 'periodStart', 'months', 'periodEnd', 'amount', 'paidAt', 'note', 'createdAt', 'updatedAt', 'deleted',
 ];
 const ATTENDANCE_COLS = ['id', 'memberId', 'date', 'createdAt', 'updatedAt', 'deleted'];
+const SEGMENT_COLS = ['id', 'memberId', 'startDate', 'endDate', 'createdAt', 'updatedAt', 'deleted'];
 const COLS: Record<TableName, string[]> = {
   members: MEMBER_COLS,
   memberships: MEMBERSHIP_COLS,
   attendance: ATTENDANCE_COLS,
+  segments: SEGMENT_COLS,
 };
 
 export const sqliteSyncStore: SyncStore = {
@@ -360,10 +439,12 @@ export const sqliteSyncStore: SyncStore = {
     const members = await db.getAllAsync<MemberRow>('SELECT * FROM members WHERE dirty = 1');
     const memberships = await db.getAllAsync<MembershipRow>('SELECT * FROM memberships WHERE dirty = 1');
     const attendance = await db.getAllAsync<AttendanceRow>('SELECT * FROM attendance WHERE dirty = 1');
+    const segments = await db.getAllAsync<SegmentRow>('SELECT * FROM segments WHERE dirty = 1');
     return {
       members: members.map(toMember),
       memberships: memberships.map(toMembership),
       attendance: attendance.map(toAttendance),
+      segments: segments.map(toSegment),
     };
   },
 

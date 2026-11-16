@@ -58,6 +58,20 @@ const MIGRATIONS: string[] = [
   CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(date);
   CREATE INDEX IF NOT EXISTS idx_attendance_member ON attendance(memberId);
   `,
+  // 3: billing segments (start / pause per member); memberships become payments only.
+  `
+  CREATE TABLE IF NOT EXISTS segments (
+    id TEXT PRIMARY KEY NOT NULL,
+    memberId TEXT NOT NULL,
+    startDate TEXT NOT NULL,
+    endDate TEXT,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    dirty INTEGER NOT NULL DEFAULT 1
+  );
+  CREATE INDEX IF NOT EXISTS idx_segments_member ON segments(memberId);
+  `,
 ];
 
 export async function migrate(): Promise<void> {
