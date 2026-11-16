@@ -1,9 +1,9 @@
 # Session State
 
-_Last updated: 2026-11-13_
+_Last updated: 2026-11-16_
 
 ## Current phase
-**Phase 2: in use, released through GitHub + Obtainium.** Latest release: **v1.1.1** (2026-11-08). v1.0.x was tested on a real phone against a real Sheet; the v1.1.0 features have not been seen on a phone yet.
+**Phase 2: in use, released through GitHub + Obtainium.** Latest release: **v1.2.0**. Branch `feature/automatic-months` (2026-11-16) is built and tested but not merged or released. v1.0.x was tested on a real phone against a real Sheet; the v1.1.0 features have not been seen on a phone yet.
 
 ## Done
 - [x] Read the app idea and chose the stack and architecture (see `CLAUDE.md`)
@@ -74,7 +74,11 @@ _Last updated: 2026-11-13_
 - [x] Settings layout: URL, key and Poveži i sačuvaj on top; last sync + Sinhronizuj sada below (released in v1.1.1)
 - [x] 2026-11-13 (not committed/released yet): discipline-neutral texts (reminder SMS, about, guide, docs); new icon (calendar + check, `scripts/make_icons.py`); Code.gs schema 3 adds the read-only **Pregled članova** tab for trainers (color-coded status, "plaćeno do", plain explanation, totals; refreshed after push, on open, after hand edits, daily trigger from `setup`, menu Članarina → Osveži pregled). Parity test `src/domain/sheetOverview.test.ts` (80 tests pass)
 
+- [x] 2026-11-16, branch `feature/automatic-months`: **automatic months.** The trainer adds a member once with a "Početak" date; months are derived (never stored) from billing segments (`segments` table / sheet tab Periodi) + payments (`memberships`). One-tap Uplata (+ undo), long press = dialog (1/2/3/6/12 months, amount, date). Pauziraj (one tap, today) / Nastavi (date picker). History per segment with ✎ to edit start/pause dates. No refunds: a started month counts in full. New status `pauza`, `isteklo` removed. Code.gs schema 4 (`MIN_SERVER_SCHEMA = 4`), app sends `defaultAmount`. Spec: `docs/superpowers/specs/2026-11-16-automatic-months-design.md`, plan: `docs/superpowers/plans/2026-11-16-automatic-months.md`. 94 tests, tsc, eslint clean.
+- [ ] **Next:** try the branch in Expo Go / emulator (`npm run android`), then merge, bump to v1.3.0, update Code.gs in the Sheet (schema 4), start fresh (new Sheet or delete old tabs; clear app data on phones), release.
+
 ## Open questions
+- Grace days before a new month counts as owed? (Now: owed from day 1.)
 - Is 3.000 RSD the right default price? (Per-member prices now exist.)
 - How many phones will enter data at the same time?
 - Latin or Cyrillic script? (assumed Latin)

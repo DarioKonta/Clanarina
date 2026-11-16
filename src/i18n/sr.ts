@@ -309,7 +309,7 @@ export const t = {
       },
       {
         title: '«Greška na serveru»',
-        body: 'Pokreni «setup» još jednom u Apps Script editoru. Ako je kod menjan, objavi novu verziju (vidi «Promenjen Code.gs»). Ne menjaj nazive listova Clanovi i Clanarine ni prvi red sa nazivima kolona.',
+        body: 'Pokreni «setup» još jednom u Apps Script editoru. Ako je kod menjan, objavi novu verziju (vidi «Promenjen Code.gs»). Ne menjaj nazive listova Clanovi, Clanarine i Periodi ni prvi red sa nazivima kolona.',
       },
       {
         title: '«Žao nam je, trenutno ne možemo da otvorimo datoteku»',

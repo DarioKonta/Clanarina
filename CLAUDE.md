@@ -43,10 +43,9 @@ src/app/                 Expo Router screens
   (tabs)/pregled.tsx       Pregled: monthly money in, due/paid, debt, 6-month chart
   (tabs)/podesavanja.tsx   Podešavanja: sync URL/secret, test, sync now, default amount, Excel export, accent color
   uputstvo.tsx             In-app Google Sheets setup guide + troubleshooting
-  clan/[id].tsx            Member detail + membership history
-  clan/uredi.tsx           Create/edit member (?id= for edit)
-  clanarina/nova.tsx       New membership (?memberId=, ?paid=1)
-src/domain/              Pure logic (no React/DB): dates, status, debts, format, validation (+ tests)
+  clan/[id].tsx            Member detail: Uplata, Pauziraj/Nastavi, history by segment (✎ edit dates)
+  clan/uredi.tsx           Create/edit member (?id= for edit); new members get a "Početak" date
+src/domain/              Pure logic (no React/DB): dates, months (grid), status, debts, format, validation (+ tests)
 src/db/                  database.ts (open + migrations + meta), repo.ts (all reads/writes + SyncStore impl)
 src/sync/                engine.ts (pure push/pull, tested), protocol.ts, client.ts (HTTP), service.ts (triggers/status), settings.ts
 src/hooks/useData.ts     Data loading hooks that reload when data changes
@@ -67,17 +66,26 @@ active (archived = 0), createdAt, updatedAt, deleted
 **attendance:** id, memberId, date `YYYY-MM-DD`, createdAt, updatedAt, deleted. One row per member+day; unchecking sets
 `deleted = 1` and checking again reuses the row (`setPresent` in repo).
 
-**memberships:** id, memberId, periodStart `YYYY-MM-DD`, months, periodEnd (derived: start + months − 1 day),
-amount (whole RSD), paidAt (`YYYY-MM-DD` or null), note?, createdAt, updatedAt, deleted
+**segments** (sheet tab `Periodi`): id, memberId, startDate, endDate? (pause date = first day not billed; null = running),
+createdAt, updatedAt, deleted. Creating a member makes the first one; Pauziraj sets `endDate`; Nastavi adds a new one.
+Segments of a member never overlap (`validateSegment`).
 
-- **Delayed payment** is a membership with `paidAt = null`. Recording the payment later sets `paidAt`; the period never moves.
+**memberships** = **payments only**: id, memberId, periodStart (a grid month start), months, periodEnd (derived),
+amount (whole RSD), paidAt, note?, createdAt, updatedAt, deleted. The id is `paymentId(memberId, periodStart)`
+(deterministic), so two phones paying the same month offline end up with one row.
+
+- **Months are never stored.** `buildMonths` (`src/domain/months.ts`) derives them: month k of a segment starts at
+  startDate + k months (anchored: 31 Jan → 28 Feb → 31 Mar), belongs to the segment if it starts before the pause date
+  (a started month counts in full, no refunds), and is paid if a payment covers its start date. Unpaid months cost the
+  member's current price (own or default). Open segments are generated 12 months ahead for advance payments.
+- **Delayed payment:** an unpaid month that has started is owed from its first day; paying later doesn't move it.
 - Status is derived in `src/domain/status.ts` and never stored:
-  - `duguje`: an unpaid membership that has started (this takes priority)
-  - `placeno`: today is covered by paid periods (consecutive ones are chained)
+  - `duguje`: an owed month exists (takes priority, also while paused)
+  - `placeno`: today is in a paid month (directly following paid months are chained)
   - `istice_uskoro`: paid coverage ends within 5 days
-  - `isteklo`: the last period has ended
-  - `bez_clanarine`: no memberships yet
-- A new membership defaults its start to the day after the previous period, or the 1st of the month if the member lapsed.
+  - `pauza`: no running segment and nothing owed (`resumesAt` = a future segment start, if any)
+  - `bez_clanarine`: no segments
+- Archiving a member also pauses them today.
 
 ## Sync rules (Apps Script)
 - Each local write sets `updatedAt = now` and `dirty = 1`.
@@ -90,7 +98,8 @@ amount (whole RSD), paidAt (`YYYY-MM-DD` or null), note?, createdAt, updatedAt, 
 - Deletes are soft (`deleted = 1`).
 - In the sheet, cells are plain text and `onEdit` stamps rows edited by hand.
 - The **Pregled članova** tab is a read-only view for trainers, built by `refreshOverview()` in Code.gs (after push, on open,
-  after hand edits, daily and from the menu). `buildOverview()` mirrors `memberStatus()`, and `src/domain/sheetOverview.test.ts`
+  after hand edits, daily and from the menu). `buildOverview()` mirrors `buildMonths()` + `memberStatus()` (using the
+  `defaultAmount` the app sends on push/pull, kept in Script Properties), and `src/domain/sheetOverview.test.ts`
   checks they agree. Change both together. It's not synced, so changing it doesn't need a `MIN_SERVER_SCHEMA` bump.
 - Code.gs matches columns by header name and appends missing ones. Every response has `schema`; the app requires
   `MIN_SERVER_SCHEMA` (`src/sync/protocol.ts`) and otherwise fails with `outdated` *before* clearing dirty rows.
