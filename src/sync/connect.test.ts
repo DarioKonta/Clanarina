@@ -4,13 +4,14 @@ const ok = (schema?: number) => ({ ok: true as const, serverTime: '2026-11-08T10
 
 describe('connectOutcome', () => {
   it('is ok for a current script', () => {
-    expect(connectOutcome(ok(2))).toBe('ok');
-    expect(connectOutcome(ok(3))).toBe('ok');
+    expect(connectOutcome(ok(4))).toBe('ok');
+    expect(connectOutcome(ok(5))).toBe('ok');
   });
 
   it('is outdated for a script without or with an old schema', () => {
     expect(connectOutcome(ok())).toBe('outdated');
     expect(connectOutcome(ok(1))).toBe('outdated');
+    expect(connectOutcome(ok(3))).toBe('outdated');
   });
 
   it('is offline when the request never reached the server', () => {

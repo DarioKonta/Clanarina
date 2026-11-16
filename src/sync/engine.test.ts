@@ -1,15 +1,22 @@
-import type { Attendance, Member, Membership } from '@/domain/types';
+import type { Attendance, Member, Membership, Segment } from '@/domain/types';
 import { runSync, selectNewer, SyncError, type SyncStore, type TableName } from './engine';
 import type { SyncRequest, SyncResponse, Transport } from './protocol';
-import { normalizeAttendance, normalizeMember, normalizeMembership } from './protocol';
+import { normalizeAttendance, normalizeMember, normalizeMembership, normalizeSegment } from './protocol';
 
-type Row = (Member | Membership | Attendance) & { dirty: boolean };
+type Row = (Member | Membership | Attendance | Segment) & { dirty: boolean };
 
-function memoryStore(initial: { members?: Row[]; memberships?: Row[]; attendance?: Row[]; lastSyncAt?: string | null }) {
+function memoryStore(initial: {
+  members?: Row[];
+  memberships?: Row[];
+  attendance?: Row[];
+  segments?: Row[];
+  lastSyncAt?: string | null;
+}) {
   const tables: Record<TableName, Map<string, Row>> = {
     members: new Map((initial.members ?? []).map((r) => [r.id, r])),
     memberships: new Map((initial.memberships ?? []).map((r) => [r.id, r])),
     attendance: new Map((initial.attendance ?? []).map((r) => [r.id, r])),
+    segments: new Map((initial.segments ?? []).map((r) => [r.id, r])),
   };
   let lastSyncAt = initial.lastSyncAt ?? null;
   const strip = ({ dirty, ...rest }: Row) => rest;
@@ -19,6 +26,7 @@ function memoryStore(initial: { members?: Row[]; memberships?: Row[]; attendance
         members: [...tables.members.values()].filter((r) => r.dirty).map(strip) as Member[],
         memberships: [...tables.memberships.values()].filter((r) => r.dirty).map(strip) as Membership[],
         attendance: [...tables.attendance.values()].filter((r) => r.dirty).map(strip) as Attendance[],
+        segments: [...tables.segments.values()].filter((r) => r.dirty).map(strip) as Segment[],
       };
     },
     async markClean(t, rows) {
@@ -65,7 +73,10 @@ const member = (id: string, updatedAt: string, extra: Partial<Member> = {}): Mem
   ...extra,
 });
 
-function fakeServer(rows: { members?: unknown[]; memberships?: unknown[]; attendance?: unknown[] } = {}, schema: number | null = 2) {
+function fakeServer(
+  rows: { members?: unknown[]; memberships?: unknown[]; attendance?: unknown[]; segments?: unknown[] } = {},
+  schema: number | null = 4,
+) {
   const version = schema === null ? {} : { schema };
   const calls: SyncRequest[] = [];
   const transport: Transport = async (body): Promise<SyncResponse> => {
@@ -107,7 +118,7 @@ describe('runSync', () => {
       members: [member('z', '2026-11-07T09:00:00.000Z')],
     });
 
-    const result = await runSync(store, transport, 'tajna');
+    const result = await runSync(store, transport, 'tajna', 3000);
 
     expect(calls.map((c) => c.action)).toEqual(['push', 'pull']);
     const push = calls[0] as Extract<SyncRequest, { action: 'push' }>;
@@ -123,7 +134,7 @@ describe('runSync', () => {
   test('skips push when nothing is dirty', async () => {
     const { store } = memoryStore({});
     const { transport, calls } = fakeServer();
-    await runSync(store, transport, 'tajna');
+    await runSync(store, transport, 'tajna', 3000);
     expect(calls.map((c) => c.action)).toEqual(['pull']);
   });
 
@@ -134,7 +145,7 @@ describe('runSync', () => {
     const { transport } = fakeServer({
       members: [member('a', '2026-11-07T08:00:00.000Z', { firstName: 'Staro' })],
     });
-    await runSync(store, transport, 'tajna');
+    await runSync(store, transport, 'tajna', 3000);
     expect((tables.members.get('a') as Member & { dirty: boolean }).firstName).toBe('Lokalno');
   });
 
@@ -153,7 +164,7 @@ describe('runSync', () => {
         },
       ],
     });
-    await runSync(store, transport, 'tajna');
+    await runSync(store, transport, 'tajna', 3000);
     expect(tables.memberships.get('x')).toMatchObject({
       periodEnd: '2026-11-30',
       amount: 3000,
@@ -168,7 +179,7 @@ describe('runSync', () => {
       members: [{ ...member('a', '2026-11-06T10:00:00.000Z'), dirty: true }],
     });
     const { transport } = fakeServer();
-    await expect(runSync(store, transport, 'pogresno')).rejects.toMatchObject({ code: 'unauthorized' });
+    await expect(runSync(store, transport, 'pogresno', 3000)).rejects.toMatchObject({ code: 'unauthorized' });
     expect(tables.members.get('a')!.dirty).toBe(true);
   });
 
@@ -177,7 +188,7 @@ describe('runSync', () => {
     const transport: Transport = async () => {
       throw new TypeError('Network request failed');
     };
-    const err = await runSync(store, transport, 'tajna').catch((e) => e);
+    const err = await runSync(store, transport, 'tajna', 3000).catch((e) => e);
     expect(err).toBeInstanceOf(SyncError);
     expect(err.code).toBe('network');
   });
@@ -201,7 +212,7 @@ describe('attendance and server version', () => {
     const { transport, calls } = fakeServer({
       attendance: [{ id: 'p2', memberId: 'b', date: '2026-11-06', deleted: '0', updatedAt: '2026-11-07T09:00:00.000Z' }],
     });
-    const result = await runSync(store, transport, 'tajna');
+    const result = await runSync(store, transport, 'tajna', 3000);
     const push = calls[0] as Extract<SyncRequest, { action: 'push' }>;
     expect(push.attendance.map((a) => a.id)).toEqual(['p1']);
     expect(tables.attendance.get('p1')!.dirty).toBe(false);
@@ -214,14 +225,52 @@ describe('attendance and server version', () => {
       members: [{ ...member('a', '2026-11-06T10:00:00.000Z', { groupName: 'Deca' }), dirty: true }],
     });
     const { transport } = fakeServer({}, null);
-    await expect(runSync(store, transport, 'tajna')).rejects.toMatchObject({ code: 'outdated' });
+    await expect(runSync(store, transport, 'tajna', 3000)).rejects.toMatchObject({ code: 'outdated' });
     expect(tables.members.get('a')!.dirty).toBe(true);
+  });
+
+  test('schema 3 script is outdated for segments', async () => {
+    const { store } = memoryStore({});
+    const { transport } = fakeServer({}, 3);
+    await expect(runSync(store, transport, 'tajna', 3000)).rejects.toMatchObject({ code: 'outdated' });
+  });
+
+  test('pushes dirty segments, pulls remote ones newest-wins, sends the default amount', async () => {
+    const local: Segment = {
+      id: 's1',
+      memberId: 'a',
+      startDate: '2026-11-01',
+      endDate: null,
+      createdAt: '2026-11-01T00:00:00.000Z',
+      updatedAt: '2026-11-07T10:00:00.000Z',
+      deleted: false,
+    };
+    const { store, tables } = memoryStore({
+      segments: [
+        { ...local, dirty: true },
+        { ...local, id: 's2', updatedAt: '2026-11-07T11:00:00.000Z', dirty: false },
+      ],
+    });
+    const { transport, calls } = fakeServer({
+      segments: [
+        { id: 's2', memberId: 'a', startDate: '2026-10-01', endDate: '', updatedAt: '2026-11-07T09:00:00.000Z' },
+        { id: 's3', memberId: 'b', startDate: '2026-12-15', endDate: '2027-01-01', updatedAt: '2026-11-07T09:00:00.000Z' },
+      ],
+    });
+    await runSync(store, transport, 'tajna', 2500);
+    const push = calls[0] as Extract<SyncRequest, { action: 'push' }>;
+    expect(push.segments.map((x) => x.id)).toEqual(['s1']);
+    expect(push.defaultAmount).toBe(2500);
+    expect((calls[1] as Extract<SyncRequest, { action: 'pull' }>).defaultAmount).toBe(2500);
+    expect(tables.segments.get('s1')!.dirty).toBe(false);
+    expect(tables.segments.get('s2')).toMatchObject({ startDate: '2026-11-01' });
+    expect(tables.segments.get('s3')).toMatchObject({ memberId: 'b', endDate: '2027-01-01', deleted: false });
   });
 
   test('outdated script is detected on pull too', async () => {
     const { store, getLast } = memoryStore({ lastSyncAt: '2026-11-01T00:00:00.000Z' });
     const { transport } = fakeServer({}, 1);
-    await expect(runSync(store, transport, 'tajna')).rejects.toMatchObject({ code: 'outdated' });
+    await expect(runSync(store, transport, 'tajna', 3000)).rejects.toMatchObject({ code: 'outdated' });
     expect(getLast()).toBe('2026-11-01T00:00:00.000Z');
   });
 });
@@ -240,6 +289,16 @@ describe('normalize', () => {
       }),
     ).toMatchObject({ groupName: 'Deca', price: 2500, birthDate: '2015-03-04', joinedAt: null });
     expect(normalizeMember({ id: 'a', firstName: 'A', price: '', updatedAt: 'x' })).toMatchObject({ price: null });
+  });
+
+  test('segment rows', () => {
+    expect(
+      normalizeSegment({ id: 's', memberId: 'a', startDate: '2026-11-01', endDate: '', updatedAt: 'x' }),
+    ).toMatchObject({ endDate: null, deleted: false, createdAt: 'x' });
+    expect(normalizeSegment({ id: 's', memberId: 'a', startDate: '1.11.2026', updatedAt: 'x' })).toBeNull();
+    expect(
+      normalizeSegment({ id: 's', memberId: 'a', startDate: '2026-11-01', endDate: 'nope', updatedAt: 'x' }),
+    ).toMatchObject({ endDate: null });
   });
 
   test('attendance rows', () => {
