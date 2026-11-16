@@ -28,6 +28,8 @@ export default function MemberFormScreen() {
   const [groups, setGroups] = useState<string[]>([]);
   const [defaultAmount, setDefaultAmountState] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  // New members only: the day their months are counted from.
+  const [startDate, setStartDate] = useState<DateKey>(todayKey);
 
   useEffect(() => {
     void listGroups().then(setGroups);
@@ -71,8 +73,8 @@ export default function MemberFormScreen() {
         await updateMember(id, fields);
         router.back();
       } else {
-        const newId = await createMember(fields);
-        // Straight to the member so a membership can be added right away.
+        const newId = await createMember(fields, startDate);
+        // Straight to the member so the first payment can be recorded right away.
         router.replace({ pathname: '/clan/[id]', params: { id: newId } });
       }
     } finally {
@@ -114,6 +116,13 @@ export default function MemberFormScreen() {
           />
           {errors.phone ? <HelperText type="error">{errors.phone}</HelperText> : null}
         </View>
+
+        {!id ? (
+          <View>
+            <DateField label={t.memberFields.startDate} value={startDate} onChange={setStartDate} />
+            <HelperText type="info">{t.memberFields.startHint}</HelperText>
+          </View>
+        ) : null}
 
         <View style={{ gap: 8 }}>
           <TextInput

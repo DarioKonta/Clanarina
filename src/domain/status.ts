@@ -1,54 +1,62 @@
-import { addDaysKey, daysBetween, firstOfMonth, periodEnd } from './dates';
-import type { DateKey, Member, MemberStatus, Membership, MembershipStatus } from './types';
+import { addDaysKey, daysBetween } from './dates';
+import { buildMonths, type MonthSlot } from './months';
+import type { DateKey, Member, MemberStatus, Membership, Segment } from './types';
 
-/** A paid membership ending within this many days counts as "expiring soon". */
+/** A paid month ending within this many days counts as "expiring soon". */
 export const EXPIRING_SOON_DAYS = 5;
 
-const endOf = (m: Membership) => m.periodEnd || periodEnd(m.periodStart, m.months);
-
-export function membershipStatus(m: Membership, today: DateKey): MembershipStatus {
-  if (m.paidAt) return 'placeno';
-  return m.periodStart <= today ? 'duguje' : 'predstojece';
+/** The member's own monthly price, or the club default. */
+export function priceOf(member: Pick<Member, 'price'>, defaultAmount: number): number {
+  return member.price ?? defaultAmount;
 }
 
-export function memberStatus(memberships: Membership[], today: DateKey): MemberStatus {
-  const live = memberships.filter((m) => !m.deleted);
+export function oldestOwed(slots: MonthSlot[]): MonthSlot | undefined {
+  return slots.find((s) => s.state === 'duguje');
+}
+
+/** What "Uplata" pays: the oldest owed month, otherwise the next upcoming one. */
+export function nextToPay(slots: MonthSlot[]): MonthSlot | undefined {
+  return oldestOwed(slots) ?? slots.find((s) => s.state === 'predstojece');
+}
+
+/** Status from already built month slots (see `buildMonths`). */
+export function statusFromSlots(segments: Segment[], slots: MonthSlot[], today: DateKey): MemberStatus {
+  const live = segments.filter((s) => !s.deleted);
   if (live.length === 0) return { kind: 'bez_clanarine' };
 
-  const unpaid = live
-    .filter((m) => membershipStatus(m, today) === 'duguje')
-    .sort((a, b) => a.periodStart.localeCompare(b.periodStart));
-  if (unpaid.length > 0) {
+  const owed = slots.filter((s) => s.state === 'duguje');
+  if (owed.length > 0) {
     return {
       kind: 'duguje',
-      debt: unpaid.reduce((sum, m) => sum + m.amount, 0),
-      since: unpaid[0].periodStart,
-      unpaidCount: unpaid.length,
+      debt: owed.reduce((sum, s) => sum + s.amount, 0),
+      since: owed[0].start,
+      unpaidCount: owed.length,
     };
   }
 
-  // Paid coverage: walk forward from today through consecutive paid periods.
-  const paid = live.filter((m) => m.paidAt);
-  let cursor = today;
-  let coveredUntil: DateKey | null = null;
-  for (;;) {
-    const next = paid.find((m) => m.periodStart <= cursor && endOf(m) >= cursor);
-    if (!next) break;
-    coveredUntil = endOf(next);
-    cursor = addDaysKey(coveredUntil, 1);
+  // Paid coverage: the paid month containing today, chained through directly following paid months.
+  let i = slots.findIndex((s) => s.state === 'placeno' && s.start <= today && today <= s.end);
+  if (i >= 0) {
+    let until = slots[i].end;
+    while (i + 1 < slots.length && slots[i + 1].state === 'placeno' && slots[i + 1].start === addDaysKey(until, 1)) {
+      i += 1;
+      until = slots[i].end;
+    }
+    const daysLeft = daysBetween(today, until);
+    return daysLeft <= EXPIRING_SOON_DAYS ? { kind: 'istice_uskoro', until, daysLeft } : { kind: 'placeno', until };
   }
 
-  if (coveredUntil) {
-    const daysLeft = daysBetween(today, coveredUntil);
-    return daysLeft <= EXPIRING_SOON_DAYS
-      ? { kind: 'istice_uskoro', until: coveredUntil, daysLeft }
-      : { kind: 'placeno', until: coveredUntil };
-  }
+  const future = live.filter((s) => s.startDate > today).sort((a, b) => a.startDate.localeCompare(b.startDate))[0];
+  return { kind: 'pauza', resumesAt: future?.startDate ?? null };
+}
 
-  const ended = live.map(endOf).filter((e) => e < today).sort();
-  if (ended.length > 0) return { kind: 'isteklo', lastEnd: ended[ended.length - 1] };
-  // Only upcoming memberships exist.
-  return { kind: 'bez_clanarine' };
+export function memberStatus(
+  segments: Segment[],
+  payments: Membership[],
+  price: number,
+  today: DateKey,
+): MemberStatus {
+  return statusFromSlots(segments, buildMonths(segments, payments, price, today), today);
 }
 
 export interface DebtItem {
@@ -61,14 +69,20 @@ export interface DebtItem {
 
 export function collectDebts(
   members: Member[],
-  memberships: Membership[],
+  segmentsBy: Map<string, Segment[]>,
+  paymentsBy: Map<string, Membership[]>,
+  defaultAmount: number,
   today: DateKey,
 ): { items: DebtItem[]; total: number } {
-  const byMember = groupByMember(memberships);
   const items: DebtItem[] = [];
   for (const member of members) {
     if (member.deleted) continue;
-    const status = memberStatus(byMember.get(member.id) ?? [], today);
+    const status = memberStatus(
+      segmentsBy.get(member.id) ?? [],
+      paymentsBy.get(member.id) ?? [],
+      priceOf(member, defaultAmount),
+      today,
+    );
     if (status.kind !== 'duguje') continue;
     items.push({
       member,
@@ -82,31 +96,12 @@ export function collectDebts(
   return { items, total: items.reduce((s, d) => s + d.debt, 0) };
 }
 
-/**
- * Default start for a new membership: the day after the latest period if that
- * period ended recently (keeps periods continuous), otherwise the 1st of this month.
- */
-export function suggestNextPeriodStart(memberships: Membership[], today: DateKey): DateKey {
-  const fallback = firstOfMonth(today);
-  const ends = memberships.filter((m) => !m.deleted).map(endOf).sort();
-  if (ends.length === 0) return fallback;
-  const next = addDaysKey(ends[ends.length - 1], 1);
-  return next >= fallback ? next : fallback;
-}
-
-/** Oldest unpaid membership that has already started — the one to pay first. */
-export function oldestUnpaid(memberships: Membership[], today: DateKey): Membership | undefined {
-  return memberships
-    .filter((m) => !m.deleted && membershipStatus(m, today) === 'duguje')
-    .sort((a, b) => a.periodStart.localeCompare(b.periodStart))[0];
-}
-
-export function groupByMember(memberships: Membership[]): Map<string, Membership[]> {
-  const map = new Map<string, Membership[]>();
-  for (const m of memberships) {
-    const list = map.get(m.memberId);
-    if (list) list.push(m);
-    else map.set(m.memberId, [m]);
+export function groupByMember<T extends { memberId: string }>(rows: T[]): Map<string, T[]> {
+  const map = new Map<string, T[]>();
+  for (const r of rows) {
+    const list = map.get(r.memberId);
+    if (list) list.push(r);
+    else map.set(r.memberId, [r]);
   }
   return map;
 }

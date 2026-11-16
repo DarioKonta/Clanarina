@@ -86,7 +86,6 @@ export default function RootLayout() {
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             <Stack.Screen name="clan/[id]" options={{ title: '' }} />
             <Stack.Screen name="clan/uredi" options={{ title: t.members.newMember, presentation: 'modal' }} />
-            <Stack.Screen name="clanarina/nova" options={{ title: t.membership.title, presentation: 'modal' }} />
             <Stack.Screen name="uputstvo" options={{ title: t.guide.title }} />
           </Stack>
         )}

@@ -1,7 +1,8 @@
-import type { Attendance, Member, Membership } from '@/domain/types';
+import { isValidDateKey } from '@/domain/dates';
+import type { Attendance, Member, Membership, Segment } from '@/domain/types';
 
 /** Lowest Code.gs schema this app can sync with (Code.gs returns `schema` in every response). */
-export const MIN_SERVER_SCHEMA = 2;
+export const MIN_SERVER_SCHEMA = 4;
 
 /** Shapes exchanged with the Apps Script backend (`apps-script/Code.gs`). */
 export type PushRequest = {
@@ -10,8 +11,11 @@ export type PushRequest = {
   members: Member[];
   memberships: Membership[];
   attendance: Attendance[];
+  segments: Segment[];
+  /** Club default monthly price, so the sheet overview can compute debts. */
+  defaultAmount: number;
 };
-export type PullRequest = { action: 'pull'; secret: string; since: string | null };
+export type PullRequest = { action: 'pull'; secret: string; since: string | null; defaultAmount: number };
 export type PingRequest = { action: 'ping'; secret: string };
 export type SyncRequest = PushRequest | PullRequest | PingRequest;
 
@@ -24,6 +28,7 @@ export type SyncResponse =
       members?: unknown[];
       memberships?: unknown[];
       attendance?: unknown[];
+      segments?: unknown[];
     }
   | { ok: false; error: string };
 
@@ -96,6 +101,21 @@ export function normalizeAttendance(raw: unknown): Attendance | null {
     id: str(r.id),
     memberId: str(r.memberId),
     date: str(r.date),
+    createdAt: str(r.createdAt) || str(r.updatedAt),
+    updatedAt: str(r.updatedAt),
+    deleted: bool(r.deleted, false),
+  };
+}
+
+export function normalizeSegment(raw: unknown): Segment | null {
+  const r = raw as Record<string, unknown>;
+  if (!r || !str(r.id) || !str(r.memberId) || !isValidDateKey(str(r.startDate)) || !str(r.updatedAt)) return null;
+  const end = str(r.endDate);
+  return {
+    id: str(r.id),
+    memberId: str(r.memberId),
+    startDate: str(r.startDate),
+    endDate: isValidDateKey(end) ? end : null,
     createdAt: str(r.createdAt) || str(r.updatedAt),
     updatedAt: str(r.updatedAt),
     deleted: bool(r.deleted, false),

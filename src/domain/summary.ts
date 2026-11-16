@@ -1,4 +1,5 @@
 import { shiftMonth } from './dates';
+import type { MonthSlot } from './months';
 import type { Member, Membership } from './types';
 
 export interface MonthSummary {
@@ -7,7 +8,7 @@ export interface MonthSummary {
   /** Money received in this month (by payment date), for any period. */
   collected: number;
   paymentsCount: number;
-  /** Memberships whose period starts in this month. */
+  /** Billing months that start in this month. */
   dueCount: number;
   duePaidCount: number;
   dueUnpaidCount: number;
@@ -16,11 +17,18 @@ export interface MonthSummary {
   newMembers: number;
 }
 
-export function monthSummary(members: Member[], memberships: Membership[], month: string): MonthSummary {
-  const live = memberships.filter((m) => !m.deleted);
-  const paid = live.filter((m) => m.paidAt?.startsWith(month));
-  const due = live.filter((m) => m.periodStart.startsWith(month));
-  const unpaid = due.filter((m) => !m.paidAt);
+export function monthSummary(
+  members: Member[],
+  slotsByMember: Map<string, MonthSlot[]>,
+  payments: Membership[],
+  month: string,
+): MonthSummary {
+  const paid = payments.filter((m) => !m.deleted && m.paidAt?.startsWith(month));
+  const due = members
+    .filter((m) => !m.deleted)
+    .flatMap((m) => slotsByMember.get(m.id) ?? [])
+    .filter((s) => s.start.startsWith(month));
+  const unpaid = due.filter((s) => s.state !== 'placeno');
   return {
     month,
     collected: paid.reduce((s, m) => s + m.amount, 0),

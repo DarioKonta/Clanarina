@@ -1,156 +1,166 @@
-import type { Member, Membership } from './types';
-import {
-  collectDebts,
-  memberStatus,
-  membershipStatus,
-  suggestNextPeriodStart,
-} from './status';
-
-const TS = '2026-01-01T00:00:00.000Z';
-
-function ms(p: Partial<Membership> & Pick<Membership, 'periodStart'>): Membership {
-  return {
-    id: Math.random().toString(36).slice(2),
-    memberId: 'm1',
-    months: 1,
-    periodEnd: '',
-    amount: 3000,
-    paidAt: null,
-    note: null,
-    createdAt: TS,
-    updatedAt: TS,
-    deleted: false,
-    ...p,
-  };
-}
-
-function member(p: Partial<Member> = {}): Member {
-  return {
-    id: 'm1',
-    firstName: 'Marko',
-    lastName: 'Petrović',
-    phone: null,
-    note: null,
-    groupName: null,
-    price: null,
-    birthDate: null,
-    joinedAt: null,
-    active: true,
-    createdAt: TS,
-    updatedAt: TS,
-    deleted: false,
-    ...p,
-  };
-}
+import { collectDebts, groupByMember, memberStatus, nextToPay, oldestOwed, priceOf } from './status';
+import { buildMonths } from './months';
+import { member, pay, seg } from './testing';
 
 const TODAY = '2026-11-07';
 
-describe('membershipStatus', () => {
-  test('paid when paidAt is set', () => {
-    expect(membershipStatus(ms({ periodStart: '2026-11-01', paidAt: '2026-11-10' }), TODAY)).toBe('placeno');
-  });
-  test('owes when unpaid and period has started (delayed payment)', () => {
-    expect(membershipStatus(ms({ periodStart: '2026-11-01' }), TODAY)).toBe('duguje');
-    expect(membershipStatus(ms({ periodStart: TODAY }), TODAY)).toBe('duguje');
-  });
-  test('upcoming when unpaid and not started yet', () => {
-    expect(membershipStatus(ms({ periodStart: '2026-12-01' }), TODAY)).toBe('predstojece');
-  });
-});
-
 describe('memberStatus', () => {
-  test('no memberships', () => {
-    expect(memberStatus([], TODAY)).toEqual({ kind: 'bez_clanarine' });
+  test('no segments', () => {
+    expect(memberStatus([], [], 3000, TODAY)).toEqual({ kind: 'bez_clanarine' });
   });
 
-  test('paid membership covering today', () => {
+  test('paid month covering today', () => {
     expect(
-      memberStatus([ms({ periodStart: '2026-11-01', months: 1, paidAt: '2026-11-01' })], TODAY),
+      memberStatus(
+        [seg({ startDate: '2026-11-01' })],
+        [pay({ periodStart: '2026-11-01', periodEnd: '2026-11-30' })],
+        3000,
+        TODAY,
+      ),
     ).toEqual({ kind: 'placeno', until: '2026-11-30' });
   });
 
-  test('delayed payment: period started on the 1st, money not brought yet', () => {
-    const s = memberStatus([ms({ periodStart: '2026-11-01', amount: 3000 })], TODAY);
-    expect(s).toEqual({ kind: 'duguje', debt: 3000, since: '2026-11-01', unpaidCount: 1 });
+  test('delayed payment: the month started on the 1st and money is not in yet', () => {
+    expect(memberStatus([seg({ startDate: '2026-11-01' })], [], 3000, TODAY)).toEqual({
+      kind: 'duguje',
+      debt: 3000,
+      since: '2026-11-01',
+      unpaidCount: 1,
+    });
   });
 
-  test('debt sums all started unpaid memberships and reports the oldest', () => {
-    const s = memberStatus(
-      [
-        ms({ periodStart: '2026-10-01', amount: 3000 }),
-        ms({ periodStart: '2026-11-01', amount: 2500 }),
-        ms({ periodStart: '2026-12-01', amount: 3000 }), // not started -> not a debt
-      ],
-      TODAY,
-    );
-    expect(s).toEqual({ kind: 'duguje', debt: 5500, since: '2026-10-01', unpaidCount: 2 });
+  test('debt sums every started unpaid month at the given price', () => {
+    expect(memberStatus([seg({ startDate: '2026-09-15' })], [], 2500, TODAY)).toEqual({
+      kind: 'duguje',
+      debt: 5000,
+      since: '2026-09-15',
+      unpaidCount: 2,
+    });
+  });
+
+  test('debt stays while paused', () => {
+    expect(memberStatus([seg({ startDate: '2026-10-01', endDate: '2026-10-20' })], [], 3000, TODAY)).toEqual({
+      kind: 'duguje',
+      debt: 3000,
+      since: '2026-10-01',
+      unpaidCount: 1,
+    });
   });
 
   test('expiring soon within 5 days', () => {
     expect(
-      memberStatus([ms({ periodStart: '2026-10-08', paidAt: '2026-10-08' })], TODAY),
-    ).toEqual({ kind: 'istice_uskoro', until: '2026-11-07', daysLeft: 0 });
-    expect(
-      memberStatus([ms({ periodStart: '2026-10-12', paidAt: '2026-10-12' })], TODAY),
+      memberStatus(
+        [seg({ startDate: '2026-10-12', endDate: '2026-11-12' })],
+        [pay({ periodStart: '2026-10-12', periodEnd: '2026-11-11' })],
+        3000,
+        TODAY,
+      ),
     ).toEqual({ kind: 'istice_uskoro', until: '2026-11-11', daysLeft: 4 });
   });
 
-  test('a following paid period prevents "expiring soon"', () => {
+  test('consecutive paid months chain into one "paid until"', () => {
     expect(
       memberStatus(
+        [seg({ startDate: '2026-10-10' })],
         [
-          ms({ periodStart: '2026-10-10', paidAt: '2026-10-10' }),
-          ms({ periodStart: '2026-11-10', paidAt: '2026-11-05' }),
+          pay({ periodStart: '2026-10-10', periodEnd: '2026-11-09' }),
+          pay({ periodStart: '2026-11-10', periodEnd: '2026-12-09' }),
         ],
+        3000,
         TODAY,
       ),
     ).toEqual({ kind: 'placeno', until: '2026-12-09' });
   });
 
-  test('expired when last period ended', () => {
+  test('a running member whose paid month ends soon but who already owes nothing next is expiring', () => {
+    // Paid 8 Oct–7 Nov, next month starts 8 Nov (not started yet): expiring today.
     expect(
-      memberStatus([ms({ periodStart: '2026-09-01', paidAt: '2026-09-01' })], TODAY),
-    ).toEqual({ kind: 'isteklo', lastEnd: '2026-09-30' });
+      memberStatus(
+        [seg({ startDate: '2026-10-08' })],
+        [pay({ periodStart: '2026-10-08', periodEnd: '2026-11-07' })],
+        3000,
+        TODAY,
+      ),
+    ).toEqual({ kind: 'istice_uskoro', until: '2026-11-07', daysLeft: 0 });
   });
 
-  test('ignores deleted memberships', () => {
-    expect(memberStatus([ms({ periodStart: '2026-11-01', deleted: true })], TODAY)).toEqual({
-      kind: 'bez_clanarine',
-    });
+  test('paused with nothing owed', () => {
+    expect(
+      memberStatus(
+        [seg({ startDate: '2026-09-01', endDate: '2026-10-01' })],
+        [pay({ periodStart: '2026-09-01', periodEnd: '2026-09-30' })],
+        3000,
+        TODAY,
+      ),
+    ).toEqual({ kind: 'pauza', resumesAt: null });
+  });
+
+  test('a paid month still running after the pause counts as paid', () => {
+    expect(
+      memberStatus(
+        [seg({ startDate: '2026-11-01', endDate: '2026-11-05' })],
+        [pay({ periodStart: '2026-11-01', periodEnd: '2026-11-30' })],
+        3000,
+        TODAY,
+      ),
+    ).toEqual({ kind: 'placeno', until: '2026-11-30' });
+  });
+
+  test('a future restart is reported', () => {
+    expect(
+      memberStatus(
+        [seg({ startDate: '2026-09-01', endDate: '2026-09-01' }), seg({ startDate: '2026-12-01' })],
+        [],
+        3000,
+        TODAY,
+      ),
+    ).toEqual({ kind: 'pauza', resumesAt: '2026-12-01' });
+  });
+});
+
+describe('oldestOwed / nextToPay', () => {
+  test('pick the oldest owed month, else the next upcoming one', () => {
+    const owing = buildMonths([seg({ startDate: '2026-09-15' })], [], 3000, TODAY, 1);
+    expect(oldestOwed(owing)?.start).toBe('2026-09-15');
+    expect(nextToPay(owing)?.start).toBe('2026-09-15');
+
+    const paid = buildMonths(
+      [seg({ startDate: '2026-11-01' })],
+      [pay({ periodStart: '2026-11-01', periodEnd: '2026-11-30' })],
+      3000,
+      TODAY,
+      1,
+    );
+    expect(oldestOwed(paid)).toBeUndefined();
+    expect(nextToPay(paid)?.start).toBe('2026-12-01');
+  });
+});
+
+describe('priceOf', () => {
+  test('own price wins over the default', () => {
+    expect(priceOf(member({ price: 2000 }), 3000)).toBe(2000);
+    expect(priceOf(member(), 3000)).toBe(3000);
   });
 });
 
 describe('collectDebts', () => {
-  test('lists debtors sorted by oldest debt, skipping deleted members', () => {
+  test('lists debtors oldest first, skipping deleted members, using each price', () => {
     const members = [
       member({ id: 'a', firstName: 'Ana' }),
-      member({ id: 'b', firstName: 'Bojan' }),
+      member({ id: 'b', firstName: 'Bojan', price: 2000 }),
       member({ id: 'c', firstName: 'Ceca', deleted: true }),
       member({ id: 'd', firstName: 'Dule' }),
     ];
-    const memberships = [
-      ms({ memberId: 'a', periodStart: '2026-11-01' }),
-      ms({ memberId: 'b', periodStart: '2026-10-01' }),
-      ms({ memberId: 'c', periodStart: '2026-10-01' }),
-      ms({ memberId: 'd', periodStart: '2026-11-01', paidAt: '2026-11-01' }),
+    const segments = [
+      seg({ memberId: 'a', startDate: '2026-11-01' }),
+      seg({ memberId: 'b', startDate: '2026-10-01' }),
+      seg({ memberId: 'c', startDate: '2026-10-01' }),
+      seg({ memberId: 'd', startDate: '2026-11-01' }),
     ];
-    const result = collectDebts(members, memberships, TODAY);
+    const payments = [pay({ memberId: 'd', periodStart: '2026-11-01', periodEnd: '2026-11-30' })];
+    const result = collectDebts(members, groupByMember(segments), groupByMember(payments), 3000, TODAY);
     expect(result.items.map((d) => d.member.id)).toEqual(['b', 'a']);
-    expect(result.items[0].daysOverdue).toBe(37);
-    expect(result.total).toBe(6000);
-  });
-});
-
-describe('suggestNextPeriodStart', () => {
-  test('continues right after the last period when it is recent', () => {
-    expect(
-      suggestNextPeriodStart([ms({ periodStart: '2026-10-15', paidAt: '2026-10-15' })], TODAY),
-    ).toBe('2026-11-15');
-  });
-  test('falls back to the 1st of the current month for new or lapsed members', () => {
-    expect(suggestNextPeriodStart([], TODAY)).toBe('2026-11-01');
-    expect(
-      suggestNextPeriodStart([ms({ periodStart: '2026-05-01', paidAt: '2026-05-01' })], TODAY),
-    ).toBe('2026-11-01');
+    expect(result.items[0]).toMatchObject({ debt: 4000, unpaidCount: 2, daysOverdue: 37 });
+    expect(result.total).toBe(7000);
   });
 });

@@ -9,8 +9,10 @@
  *
  * API (POST, JSON body):
  *   { action: "ping", secret }
- *   { action: "push", secret, members: [...], memberships: [...], attendance: [...] }
- *   { action: "pull", secret, since: ISO | null }
+ *   { action: "push", secret, defaultAmount, members: [...], memberships: [...], attendance: [...], segments: [...] }
+ *   { action: "pull", secret, defaultAmount, since: ISO | null }
+ * `memberships` are payments; `segments` (tab Periodi) are billing start / pause dates per member.
+ * `defaultAmount` (club monthly price) is kept in Script Properties for the overview.
  * Every response carries `schema` so the app can tell an outdated script apart.
  * Every row keeps `syncedAt` = server time of its last write; `pull` returns rows
  * with syncedAt > since. Conflicts: last write wins by `updatedAt`.
@@ -23,8 +25,9 @@
  * (trigger installed by `setup`) and from the menu Članarina → Osveži pregled.
  */
 
-// 3 = adds the "Pregled članova" tab. The sync protocol is unchanged, so the app still accepts 2.
-var SCHEMA = 3;
+// 3 = adds the "Pregled članova" tab.
+// 4 = automatic months: adds the Periodi (segments) tab and defaultAmount. The app requires 4.
+var SCHEMA = 4;
 
 var TABLES = {
   members: {
@@ -42,9 +45,22 @@ var TABLES = {
     sheet: 'Prisustvo',
     columns: ['id', 'memberId', 'date', 'createdAt', 'updatedAt', 'deleted', 'syncedAt'],
   },
+  segments: {
+    sheet: 'Periodi',
+    columns: ['id', 'memberId', 'startDate', 'endDate', 'createdAt', 'updatedAt', 'deleted', 'syncedAt'],
+  },
 };
 
-var DATE_COLUMNS = { periodStart: true, periodEnd: true, paidAt: true, birthDate: true, joinedAt: true, date: true };
+var DATE_COLUMNS = {
+  periodStart: true,
+  periodEnd: true,
+  paidAt: true,
+  birthDate: true,
+  joinedAt: true,
+  date: true,
+  startDate: true,
+  endDate: true,
+};
 
 function doPost(e) {
   var body;
@@ -61,6 +77,7 @@ function doPost(e) {
   try {
     var serverTime = new Date().toISOString();
     if (body.action === 'ping') return json({ ok: true, serverTime: serverTime, schema: SCHEMA });
+    var priceChanged = saveDefaultAmount(body.defaultAmount);
     if (body.action === 'push') {
       for (var table in TABLES) upsert(table, body[table] || [], serverTime);
       try {
@@ -73,6 +90,13 @@ function doPost(e) {
     if (body.action === 'pull') {
       var out = { ok: true, serverTime: serverTime, schema: SCHEMA };
       for (var t in TABLES) out[t] = readSince(t, body.since);
+      if (priceChanged) {
+        try {
+          refreshOverview();
+        } catch (err) {
+          // cosmetic
+        }
+      }
       return json(out);
     }
     return json({ ok: false, error: 'unknown_action' });
@@ -208,6 +232,7 @@ function readSince(table, since) {
 
 var OVERVIEW_SHEET = 'Pregled članova';
 var EXPIRING_SOON_DAYS = 5; // keep in sync with src/domain/status.ts
+var MONTHS_AHEAD = 12; // keep in sync with src/domain/months.ts
 var MONTHS_SHORT = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'avg', 'sep', 'okt', 'nov', 'dec'];
 var OVERVIEW_HEADER = ['Ime i prezime', 'Grupa', 'Stanje', 'Plaćeno do', 'Objašnjenje', 'Telefon'];
 var OVERVIEW_WIDTHS = [200, 120, 150, 130, 300, 130];
@@ -215,10 +240,10 @@ var OVERVIEW_WIDTHS = [200, 120, 150, 130, 300, 130];
 /** Sorted most urgent first. `bg` = row color, `fg` = status text color. */
 var OVERVIEW_KINDS = {
   duguje: { label: '🔴 Duguje', bg: '#F8D7D5', fg: '#B71C1C', order: 0 },
-  isteklo: { label: '🟠 Isteklo', bg: '#FDE3C8', fg: '#BF5B00', order: 1 },
-  istice_uskoro: { label: '🟡 Ističe uskoro', bg: '#FFF4C2', fg: '#8D6E00', order: 2 },
-  placeno: { label: '🟢 Plaćeno', bg: '#DDF0DA', fg: '#1B5E20', order: 3 },
-  bez_clanarine: { label: '⚪ Nema članarinu', bg: '#F3F3F3', fg: '#616161', order: 4 },
+  istice_uskoro: { label: '🟡 Ističe uskoro', bg: '#FFF4C2', fg: '#8D6E00', order: 1 },
+  placeno: { label: '🟢 Plaćeno', bg: '#DDF0DA', fg: '#1B5E20', order: 2 },
+  pauza: { label: '⏸️ Pauza', bg: '#E3EAF2', fg: '#37474F', order: 3 },
+  bez_clanarine: { label: '⚪ Bez početka', bg: '#F3F3F3', fg: '#616161', order: 4 },
 };
 
 /** Called from onOpen, the menu and the daily trigger: waits for a running sync, never throws. */
@@ -239,7 +264,23 @@ function refreshOverviewSafely() {
   }
 }
 
-/** Rebuilds the "Pregled članova" tab from Clanovi + Clanarine. */
+/** Stores the club default price sent by the app. Returns true when it changed. */
+function saveDefaultAmount(v) {
+  var n = Number(v);
+  if (v === undefined || v === null || v === '' || !isFinite(n) || n < 0) return false;
+  var props = PropertiesService.getScriptProperties();
+  var value = String(Math.round(n));
+  if (props.getProperty('DEFAULT_AMOUNT') === value) return false;
+  props.setProperty('DEFAULT_AMOUNT', value);
+  return true;
+}
+
+function getDefaultAmount() {
+  var n = Number(PropertiesService.getScriptProperties().getProperty('DEFAULT_AMOUNT'));
+  return isFinite(n) && n > 0 ? n : 3000;
+}
+
+/** Rebuilds the "Pregled članova" tab from Clanovi + Clanarine + Periodi. */
 function refreshOverview() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var tz = ss.getSpreadsheetTimeZone();
@@ -248,7 +289,13 @@ function refreshOverview() {
   var plain = function (r) {
     return r.obj;
   };
-  var view = buildOverview(readAll('members').rows.map(plain), readAll('memberships').rows.map(plain), today);
+  var view = buildOverview(
+    readAll('members').rows.map(plain),
+    readAll('memberships').rows.map(plain),
+    readAll('segments').rows.map(plain),
+    today,
+    getDefaultAmount(),
+  );
 
   var sh = ss.getSheetByName(OVERVIEW_SHEET);
   if (!sh) sh = ss.insertSheet(OVERVIEW_SHEET, 0);
@@ -261,9 +308,9 @@ function refreshOverview() {
   var c = view.counts;
   var summary =
     OVERVIEW_KINDS.duguje.label + ': ' + c.duguje + (view.totalDebt ? ' (ukupno ' + formatMoneyRsd(view.totalDebt) + ')' : '') +
-    '     ' + OVERVIEW_KINDS.isteklo.label + ': ' + c.isteklo +
     '     ' + OVERVIEW_KINDS.istice_uskoro.label + ': ' + c.istice_uskoro +
-    '     ' + OVERVIEW_KINDS.placeno.label + ': ' + c.placeno;
+    '     ' + OVERVIEW_KINDS.placeno.label + ': ' + c.placeno +
+    '     ' + OVERVIEW_KINDS.pauza.label + ': ' + c.pauza;
   sh.getRange(1, 1).setValue('Pregled članova').setFontSize(18).setFontWeight('bold');
   sh.getRange(2, 1)
     .setValue(
@@ -319,29 +366,39 @@ function refreshOverview() {
 }
 
 /**
- * Pure: members + memberships (sheet rows as strings) → overview rows, most urgent first.
- * Mirrors memberStatus() in src/domain/status.ts. Archived and deleted members are left out.
+ * Pure: members + payments + segments (sheet rows as strings) → overview rows, most urgent first.
+ * Mirrors buildMonths() in src/domain/months.ts and memberStatus() in src/domain/status.ts.
+ * Archived and deleted members are left out.
  */
-function buildOverview(members, memberships, today) {
-  var byMember = {};
+function buildOverview(members, memberships, segments, today, defaultAmount) {
+  var paymentsBy = {};
   memberships.forEach(function (m) {
-    if (isTruthy(m.deleted) || !isDateKey(m.periodStart)) return;
+    if (isTruthy(m.deleted) || !isDateKey(m.periodStart) || !isDateKey(m.paidAt)) return;
     var months = Number(m.months) || 1;
-    var ms = {
+    (paymentsBy[m.memberId] = paymentsBy[m.memberId] || []).push({
       start: m.periodStart,
       end: isDateKey(m.periodEnd) ? m.periodEnd : periodEndKey(m.periodStart, months),
       amount: Number(m.amount) || 0,
-      paid: isDateKey(m.paidAt),
-    };
-    (byMember[m.memberId] = byMember[m.memberId] || []).push(ms);
+    });
+  });
+  var segmentsBy = {};
+  segments.forEach(function (s) {
+    if (isTruthy(s.deleted) || !isDateKey(s.startDate)) return;
+    (segmentsBy[s.memberId] = segmentsBy[s.memberId] || []).push({
+      start: s.startDate,
+      end: isDateKey(s.endDate) ? s.endDate : null,
+    });
   });
 
-  var counts = { duguje: 0, isteklo: 0, istice_uskoro: 0, placeno: 0, bez_clanarine: 0 };
+  var counts = { duguje: 0, istice_uskoro: 0, placeno: 0, pauza: 0, bez_clanarine: 0 };
   var totalDebt = 0;
   var rows = [];
   members.forEach(function (mem) {
     if (isTruthy(mem.deleted) || String(mem.active) === '0') return;
-    var s = overviewStatus(byMember[mem.id] || [], today);
+    var price = moneyOrNull(mem.price);
+    if (price === null) price = Number(defaultAmount) || 0;
+    var segs = segmentsBy[mem.id] || [];
+    var s = overviewStatus(segs, buildMonthSlots(segs, paymentsBy[mem.id] || [], price, today), today);
     counts[s.kind]++;
     totalDebt += s.debt;
     rows.push({
@@ -363,52 +420,68 @@ function buildOverview(members, memberships, today) {
   return { rows: rows, counts: counts, totalDebt: totalDebt };
 }
 
-/** One member's status with a plain-language explanation. */
-function overviewStatus(list, today) {
-  var paid = list.filter(function (m) {
-    return m.paid;
+/** Month grid of one member, oldest first (same rules as the app). */
+function buildMonthSlots(segs, payments, price, today) {
+  var limit = addMonthsKey(today, MONTHS_AHEAD);
+  var slots = [];
+  segs.forEach(function (s) {
+    for (var k = 0; k < 1200; k++) {
+      var start = addMonthsKey(s.start, k);
+      if (s.end !== null ? start >= s.end : k > 0 && start > limit) break;
+      var end = addDaysKey(addMonthsKey(s.start, k + 1), -1);
+      var hit = null;
+      for (var i = 0; i < payments.length && !hit; i++) {
+        if (payments[i].start <= start && start <= payments[i].end) hit = payments[i];
+      }
+      slots.push({
+        start: start,
+        end: end,
+        state: hit ? 'placeno' : start <= today ? 'duguje' : 'predstojece',
+        amount: hit ? hit.amount : price,
+      });
+    }
   });
-  var lastPaidEnd = paid.reduce(function (acc, m) {
-    return !acc || m.end > acc ? m.end : acc;
-  }, null);
-  if (!list.length) {
-    return { kind: 'bez_clanarine', debt: 0, paidUntil: null, note: 'Još nije uneta nijedna članarina', sortKey: '' };
-  }
+  return slots.sort(function (a, b) {
+    return a.start < b.start ? -1 : a.start > b.start ? 1 : 0;
+  });
+}
 
-  var unpaid = list
-    .filter(function (m) {
-      return !m.paid && m.start <= today;
-    })
-    .sort(function (a, b) {
-      return a.start < b.start ? -1 : a.start > b.start ? 1 : 0;
-    });
-  if (unpaid.length) {
-    var debt = unpaid.reduce(function (s, m) {
-      return s + m.amount;
+/** One member's status with a plain-language explanation. */
+function overviewStatus(segs, slots, today) {
+  if (!segs.length) {
+    return { kind: 'bez_clanarine', debt: 0, paidUntil: null, note: 'Nije unet početak članarine', sortKey: '' };
+  }
+  var lastPaidEnd = null;
+  slots.forEach(function (s) {
+    if (s.state === 'placeno' && (!lastPaidEnd || s.end > lastPaidEnd)) lastPaidEnd = s.end;
+  });
+
+  var owed = slots.filter(function (s) {
+    return s.state === 'duguje';
+  });
+  if (owed.length) {
+    var debt = owed.reduce(function (sum, s) {
+      return sum + s.amount;
     }, 0);
-    var what = unpaid.length > 1 ? unpaid.length + ' članarine' : 'članarinu';
     return {
       kind: 'duguje',
       debt: debt,
       paidUntil: lastPaidEnd,
-      note: 'Treba da plati ' + formatMoneyRsd(debt) + ' (' + what + ' od ' + formatDateKey(unpaid[0].start) + ')',
-      sortKey: unpaid[0].start, // oldest debt first
+      note: 'Treba da plati ' + formatMoneyRsd(debt) + ' (' + monthsText(owed.length) + ' od ' + formatDateKey(owed[0].start) + ')',
+      sortKey: owed[0].start, // oldest debt first
     };
   }
 
-  // Paid coverage: walk forward from today through consecutive paid periods.
-  var cursor = today;
-  var covered = null;
-  for (;;) {
-    var next = null;
-    for (var i = 0; i < paid.length; i++) {
-      if (paid[i].start <= cursor && paid[i].end >= cursor) next = paid[i];
-    }
-    if (!next) break;
-    covered = next.end;
-    cursor = addDaysKey(covered, 1);
+  var i = -1;
+  for (var j = 0; j < slots.length && i < 0; j++) {
+    if (slots[j].state === 'placeno' && slots[j].start <= today && today <= slots[j].end) i = j;
   }
-  if (covered) {
+  if (i >= 0) {
+    var covered = slots[i].end;
+    while (i + 1 < slots.length && slots[i + 1].state === 'placeno' && slots[i + 1].start === addDaysKey(covered, 1)) {
+      i++;
+      covered = slots[i].end;
+    }
     var left = daysBetweenKeys(today, covered);
     if (left <= EXPIRING_SOON_DAYS) {
       var when = left === 0 ? 'Ističe danas' : left === 1 ? 'Ističe sutra' : 'Ističe za ' + daysText(left);
@@ -417,26 +490,34 @@ function overviewStatus(list, today) {
     return { kind: 'placeno', debt: 0, paidUntil: covered, note: 'Sve u redu, još ' + daysText(left), sortKey: covered };
   }
 
-  var ended = list
-    .map(function (m) {
-      return m.end;
-    })
-    .filter(function (e) {
-      return e < today;
-    })
-    .sort();
-  if (ended.length) {
-    var lastEnd = ended[ended.length - 1];
-    var ago = daysBetweenKeys(lastEnd, today);
-    return {
-      kind: 'isteklo',
-      debt: 0,
-      paidUntil: lastPaidEnd,
-      note: 'Isteklo pre ' + daysText(ago) + ', treba nova članarina',
-      sortKey: invertKey(lastEnd), // most recently expired first
-    };
-  }
-  return { kind: 'bez_clanarine', debt: 0, paidUntil: null, note: 'Članarina počinje kasnije', sortKey: '' };
+  var resumes = null;
+  segs.forEach(function (s) {
+    if (s.start > today && (!resumes || s.start < resumes)) resumes = s.start;
+  });
+  return {
+    kind: 'pauza',
+    debt: 0,
+    paidUntil: lastPaidEnd,
+    note: resumes ? 'Na pauzi, nastavlja ' + formatDateKey(resumes) : 'Na pauzi',
+    sortKey: resumes || '9999',
+  };
+}
+
+/** 1 mesec, 2 meseca, 5 meseci, 21 mesec. */
+function monthsText(n) {
+  var t = n % 10;
+  var h = n % 100;
+  if (t === 1 && h !== 11) return n + ' mesec';
+  if (t >= 2 && t <= 4 && (h < 12 || h > 14)) return n + ' meseca';
+  return n + ' meseci';
+}
+
+/** Whole RSD typed by a human ("2.500", "2 500"); null when empty (same as the app). */
+function moneyOrNull(v) {
+  var s = String(v === null || v === undefined ? '' : v).trim();
+  if (s === '') return null;
+  var n = Number(s.replace(/[.\s]/g, '').replace(',', '.'));
+  return isFinite(n) ? Math.round(n) : null;
 }
 
 /** 1 dan, 2 dana, 11 dana, 21 dan. */
@@ -474,19 +555,19 @@ function daysBetweenKeys(a, b) {
   return Math.round((keyToUtc(b) - keyToUtc(a)) / 86400000);
 }
 
-/** start + months − 1 day, clamping the day like date-fns addMonths (31 Jan + 1 → 28 Feb). */
-function periodEndKey(start, months) {
+/** start + months, clamping the day like date-fns addMonths (31 Jan + 1 → 28 Feb). */
+function addMonthsKey(start, months) {
   var p = start.split('-');
   var y = Number(p[0]);
   var m = Number(p[1]) - 1 + months;
   var d = Number(p[2]);
   var daysInTarget = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
-  return addDaysKey(utcToKey(Date.UTC(y, m, Math.min(d, daysInTarget))), -1);
+  return utcToKey(Date.UTC(y, m, Math.min(d, daysInTarget)));
 }
 
-/** Sort key that orders dates newest first. */
-function invertKey(k) {
-  return String(99999999 - Number(k.replace(/-/g, '')));
+/** start + months − 1 day. */
+function periodEndKey(start, months) {
+  return addDaysKey(addMonthsKey(start, months), -1);
 }
 
 /** "2026-11-01" → "1. nov 2026." (same as the app). */

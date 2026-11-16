@@ -4,17 +4,19 @@ import { useState } from 'react';
 import { Alert, Linking, ScrollView, StyleSheet, View } from 'react-native';
 import { Avatar, Button, IconButton, Menu, Text } from 'react-native-paper';
 import { countInMonth, lastAttended } from '@/domain/attendance';
-import { ageOn, isBirthday, monthOf, todayKey } from '@/domain/dates';
+import { addDaysKey, ageOn, isBirthday, monthOf, todayKey } from '@/domain/dates';
 import { formatDate, formatMoney, formatPeriod, fullName, initials } from '@/domain/format';
-import { membershipStatus } from '@/domain/status';
-import type { Membership } from '@/domain/types';
-import { deleteMember, deleteMembership, restoreMember, restoreMembership, setPayment, updateMember } from '@/db/repo';
+import { openSegment, type MonthSlot } from '@/domain/months';
+import { nextToPay, oldestOwed } from '@/domain/status';
+import type { Segment } from '@/domain/types';
+import { deleteMember, pauseMember, reopenSegment, restoreMember, setPaymentDeleted, updateMember } from '@/db/repo';
 import { useMemberDetail } from '@/hooks/useData';
 import { t } from '@/i18n/sr';
 import { offerUndo } from '@/state/store';
 import { EmptyState } from '@/ui/EmptyState';
-import { PaymentDialog } from '@/ui/PaymentDialog';
+import { PaymentDialog, quickPay, type PaymentTarget } from '@/ui/PaymentDialog';
 import { ReminderButton } from '@/ui/ReminderButton';
+import { ResumeDialog, SegmentDialog } from '@/ui/SegmentDialogs';
 import { Pill, StatusChip } from '@/ui/StatusChip';
 import { colors, statusColor } from '@/ui/theme';
 
@@ -28,12 +30,28 @@ export default function MemberDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data, loading } = useMemberDetail(id);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [paying, setPaying] = useState<Membership | null>(null);
+  const [paying, setPaying] = useState<PaymentTarget | null>(null);
+  const [resuming, setResuming] = useState(false);
+  const [editing, setEditing] = useState<Segment | null>(null);
 
   if (loading) return null;
   const member = data?.member;
-  if (!member || member.deleted) return <EmptyState icon="account-question" title={t.members.notFound} />;
-  const { memberships, status, attendance } = data;
+  const detail = data?.detail;
+  if (!member || member.deleted || !detail) return <EmptyState icon="account-question" title={t.members.notFound} />;
+  const { attendance } = data;
+  const { status, segments, slots } = detail;
+  const running = openSegment(segments);
+  const toPay = nextToPay(slots);
+  const payMonth = (slot: MonthSlot) => setPaying({ ...detail, slot });
+  const onPay = () => {
+    const owed = oldestOwed(slots);
+    if (owed) void quickPay({ ...detail, slot: owed });
+    else if (toPay) payMonth(toPay);
+  };
+  const onPause = async () => {
+    const segId = await pauseMember(member.id);
+    if (segId) offerUndo(t.undo.paused, () => reopenSegment(segId));
+  };
   const accent = statusColor[status.kind];
   const today = todayKey();
   const birthday = isBirthday(member.birthDate, today);
@@ -89,13 +107,15 @@ export default function MemberDetailScreen() {
               <Menu.Item
                 leadingIcon={member.active ? 'archive' : 'archive-arrow-up'}
                 title={member.active ? t.members.archive : t.members.unarchive}
-                onPress={() => {
+                onPress={async () => {
                   setMenuOpen(false);
                   const wasActive = member.active;
-                  void updateMember(member.id, { active: !wasActive });
-                  offerUndo(wasActive ? t.undo.archived : t.undo.unarchived, () =>
-                    updateMember(member.id, { active: wasActive }),
-                  );
+                  // Archiving pauses billing; undo restores both.
+                  const pausedId = await updateMember(member.id, { active: !wasActive });
+                  offerUndo(wasActive ? t.undo.archived : t.undo.unarchived, async () => {
+                    await updateMember(member.id, { active: wasActive });
+                    if (pausedId) await reopenSegment(pausedId);
+                  });
                 }}
               />
               <Menu.Item
@@ -166,96 +186,148 @@ export default function MemberDetailScreen() {
           </View>
         ) : null}
 
-        <Button
-          mode="contained"
-          icon="plus"
-          contentStyle={styles.bigBtn}
-          onPress={() => router.push({ pathname: '/clanarina/nova', params: { memberId: member.id } })}
-        >
-          {t.member.newMembership}
-        </Button>
+        {member.active ? (
+          <View style={styles.actions}>
+            {toPay ? (
+              <Button
+                mode="contained"
+                icon="cash"
+                style={{ flex: 1 }}
+                contentStyle={styles.bigBtn}
+                onPress={onPay}
+                onLongPress={() => payMonth(toPay)}
+              >
+                {t.members.payQuick}
+              </Button>
+            ) : null}
+            {running ? (
+              <Button mode="contained-tonal" icon="pause" style={{ flex: 1 }} contentStyle={styles.bigBtn} onPress={onPause}>
+                {t.member.pause}
+              </Button>
+            ) : (
+              <Button
+                mode="contained-tonal"
+                icon="play"
+                style={{ flex: 1 }}
+                contentStyle={styles.bigBtn}
+                onPress={() => setResuming(true)}
+              >
+                {t.member.resume}
+              </Button>
+            )}
+          </View>
+        ) : null}
 
         <Text variant="titleMedium" style={styles.sectionTitle}>
           {t.member.history}
         </Text>
-        {memberships.length === 0 ? (
+        {segments.length === 0 ? (
           <Text style={styles.muted}>{t.member.noHistory}</Text>
         ) : (
-          memberships.map((m) => <MembershipRow key={m.id} m={m} onPay={() => setPaying(m)} />)
+          <History segments={segments} slots={slots} onEdit={setEditing} onPay={payMonth} />
         )}
       </ScrollView>
 
-      <PaymentDialog member={member} membership={paying} onDismiss={() => setPaying(null)} />
+      <PaymentDialog target={paying} onDismiss={() => setPaying(null)} />
+      <ResumeDialog memberId={member.id} segments={segments} visible={resuming} onDismiss={() => setResuming(false)} />
+      <SegmentDialog segment={editing} segments={segments} onDismiss={() => setEditing(null)} />
     </View>
   );
 }
 
-function MembershipRow({ m, onPay }: { m: Membership; onPay: () => void }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const s = membershipStatus(m, todayKey());
-  const color = s === 'placeno' ? colors.paid : s === 'duguje' ? colors.owes : colors.textMuted;
-  const label = s === 'placeno' ? t.status.paid : s === 'duguje' ? t.status.unpaid : t.status.upcoming;
+/** Segments newest first, each with its months (started, paid, or the next upcoming one); breaks between. */
+function History({
+  segments,
+  slots,
+  onEdit,
+  onPay,
+}: {
+  segments: Segment[];
+  slots: MonthSlot[];
+  onEdit: (s: Segment) => void;
+  onPay: (slot: MonthSlot) => void;
+}) {
+  const today = todayKey();
+  const ordered = [...segments].sort((a, b) => b.startDate.localeCompare(a.startDate));
+  return (
+    <View style={{ gap: 10 }}>
+      {ordered.map((seg, i) => {
+        const own = slots.filter((s) => s.segmentId === seg.id);
+        const firstUpcoming = own.find((s) => s.state === 'predstojece');
+        const shown = own.filter((s) => s.start <= today || s.state === 'placeno' || s === firstUpcoming).reverse();
+        const older = ordered[i + 1];
+        return (
+          <View key={seg.id} style={{ gap: 8 }}>
+            <View style={styles.segmentHead}>
+              <MaterialCommunityIcons
+                name={seg.endDate ? 'calendar-range' : 'calendar-arrow-right'}
+                size={18}
+                color={colors.textMuted}
+              />
+              <Text variant="titleSmall" style={{ flex: 1 }}>
+                {seg.endDate
+                  ? t.member.segmentRange(formatDate(seg.startDate), formatDate(seg.endDate))
+                  : t.member.segmentRunning(formatDate(seg.startDate))}
+              </Text>
+              <IconButton icon="pencil" size={20} accessibilityLabel={t.member.editSegment} onPress={() => onEdit(seg)} />
+            </View>
+            {shown.map((slot) => (
+              <MonthRow key={slot.start} slot={slot} onPay={() => onPay(slot)} />
+            ))}
+            {older?.endDate && older.endDate < seg.startDate ? (
+              <View style={styles.gap}>
+                <Text variant="bodySmall" style={styles.muted}>
+                  {t.member.gap}: {formatPeriod(older.endDate, addDaysKey(seg.startDate, -1))}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function MonthRow({ slot, onPay }: { slot: MonthSlot; onPay: () => void }) {
+  const color = slot.state === 'placeno' ? colors.paid : slot.state === 'duguje' ? colors.owes : colors.textMuted;
+  const label =
+    slot.state === 'placeno' ? t.member.monthPaid : slot.state === 'duguje' ? t.member.monthOwes : t.member.monthUpcoming;
+  const payment = slot.payment;
+
+  const undoPayment = () => {
+    if (!payment) return;
+    Alert.alert(t.member.undoPaymentConfirm, formatPeriod(payment.periodStart, payment.periodEnd), [
+      { text: t.common.cancel, style: 'cancel' },
+      {
+        text: t.member.undoPayment,
+        style: 'destructive',
+        onPress: () => {
+          void setPaymentDeleted(payment.id, true);
+          offerUndo(t.undo.unpaid, () => setPaymentDeleted(payment.id, false));
+        },
+      },
+    ]);
+  };
 
   return (
     <View style={[styles.row, { borderLeftColor: color }]}>
       <View style={{ flex: 1, gap: 4 }}>
-        <Text variant="titleSmall">{formatPeriod(m.periodStart, m.periodEnd)}</Text>
+        <Text variant="titleSmall">{formatPeriod(slot.start, slot.end)}</Text>
         <Text variant="bodySmall" style={styles.muted}>
-          {t.membership.months(m.months)} · {formatMoney(m.amount)}
+          {payment && payment.months > 1
+            ? t.member.partOfPayment(formatMoney(payment.amount), t.membership.months(payment.months))
+            : formatMoney(slot.amount)}
+          {payment?.paidAt ? ` · ${t.member.paidOn(formatDate(payment.paidAt))}` : ''}
         </Text>
-        {m.paidAt ? (
-          <Text variant="bodySmall" style={styles.muted}>
-            {t.member.paidOn(formatDate(m.paidAt))}
-          </Text>
-        ) : null}
-        {m.note ? (
-          <Text variant="bodySmall" style={styles.muted}>
-            {m.note}
-          </Text>
-        ) : null}
         <Pill color={color} label={label} />
       </View>
-      {!m.paidAt ? (
-        <Button mode="contained" compact onPress={onPay}>
-          {t.member.recordPayment}
+      {payment ? (
+        <IconButton icon="cash-remove" size={20} accessibilityLabel={t.member.undoPayment} onPress={undoPayment} />
+      ) : (
+        <Button mode={slot.state === 'duguje' ? 'contained' : 'contained-tonal'} compact onPress={onPay}>
+          {t.members.payQuick}
         </Button>
-      ) : null}
-      <Menu
-        visible={menuOpen}
-        onDismiss={() => setMenuOpen(false)}
-        anchor={<IconButton icon="dots-vertical" size={20} onPress={() => setMenuOpen(true)} />}
-      >
-        {m.paidAt ? (
-          <Menu.Item
-            leadingIcon="cash-remove"
-            title={t.member.undoPayment}
-            onPress={() => {
-              setMenuOpen(false);
-              const { id, paidAt, amount } = m;
-              void setPayment(id, null, amount);
-              offerUndo(t.undo.unpaid, () => setPayment(id, paidAt, amount));
-            }}
-          />
-        ) : null}
-        <Menu.Item
-          leadingIcon="delete"
-          title={t.member.deleteMembership}
-          onPress={() => {
-            setMenuOpen(false);
-            Alert.alert(t.member.deleteMembershipConfirm, formatPeriod(m.periodStart, m.periodEnd), [
-              { text: t.common.cancel, style: 'cancel' },
-              {
-                text: t.common.delete,
-                style: 'destructive',
-                onPress: () => {
-                  void deleteMembership(m.id);
-                  offerUndo(t.undo.membershipDeleted, () => restoreMembership(m.id));
-                },
-              },
-            ]);
-          }}
-        />
-      </Menu>
+      )}
     </View>
   );
 }
@@ -283,7 +355,10 @@ const styles = StyleSheet.create({
   },
   muted: { color: colors.textMuted },
   bigBtn: { height: 52 },
+  actions: { flexDirection: 'row', gap: 10 },
   sectionTitle: { marginTop: 8 },
+  segmentHead: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 4 },
+  gap: { paddingVertical: 6, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1, borderStyle: 'dashed', borderColor: colors.textMuted + '66' },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

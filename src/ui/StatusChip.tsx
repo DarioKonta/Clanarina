@@ -13,8 +13,8 @@ export function statusLabel(s: MemberStatus): string {
       return t.status.owes(formatMoney(s.debt));
     case 'istice_uskoro':
       return t.status.expiresIn(s.daysLeft);
-    case 'isteklo':
-      return t.status.expired(formatDayMonth(s.lastEnd));
+    case 'pauza':
+      return s.resumesAt ? t.status.pausedUntil(formatDayMonth(s.resumesAt)) : t.status.paused;
     case 'bez_clanarine':
       return t.status.none;
   }

@@ -25,7 +25,7 @@ const names = (xs: Sortable[]) => xs.map((x) => x.member.firstName);
 const ana = item('Ana', 'Zekić', { kind: 'placeno', until: '2026-12-31' }, '2026-03-01T00:00:00.000Z');
 const boris = item('Boris', 'Antić', { kind: 'duguje', debt: 3000, since: '2026-11-01', unpaidCount: 1 }, '2026-01-01T00:00:00.000Z');
 const ceca = item('Ceca', 'Marić', { kind: 'istice_uskoro', until: '2026-11-09', daysLeft: 2 }, '2026-05-01T00:00:00.000Z');
-const dejan = item('Dejan', 'Lazić', { kind: 'isteklo', lastEnd: '2026-10-31' }, '2026-02-01T00:00:00.000Z');
+const dejan = item('Dejan', 'Lazić', { kind: 'pauza', resumesAt: null }, '2026-02-01T00:00:00.000Z');
 const ema = item('Ema', 'Babić', { kind: 'bez_clanarine' }, '2026-04-01T00:00:00.000Z');
 const goran = item('Goran', 'Ilić', { kind: 'duguje', debt: 6000, since: '2026-10-01', unpaidCount: 2 }, '2026-06-01T00:00:00.000Z');
 
@@ -36,12 +36,10 @@ describe('validUntil', () => {
     expect(validUntil(ana.status)).toBe('2026-12-31');
     expect(validUntil(ceca.status)).toBe('2026-11-09');
   });
-  it('returns the last end for expired members', () => {
-    expect(validUntil(dejan.status)).toBe('2026-10-31');
-  });
   it('returns null when there is no paid coverage to show', () => {
     expect(validUntil(boris.status)).toBeNull();
     expect(validUntil(ema.status)).toBeNull();
+    expect(validUntil(dejan.status)).toBeNull();
   });
 });
 
@@ -63,13 +61,13 @@ describe('sortMembers', () => {
   });
 
   it('sorts by status urgency, ties by name', () => {
-    // duguje → ističe uskoro → isteklo → bez članarine → plaćeno
-    expect(names(sortMembers(all, 'status', 'asc'))).toEqual(['Boris', 'Goran', 'Ceca', 'Dejan', 'Ema', 'Ana']);
+    // duguje → ističe uskoro → bez članarine → pauza → plaćeno
+    expect(names(sortMembers(all, 'status', 'asc'))).toEqual(['Boris', 'Goran', 'Ceca', 'Ema', 'Dejan', 'Ana']);
   });
 
   it('sorts by valid-until date, members without a date last in both directions', () => {
-    expect(names(sortMembers(all, 'validUntil', 'asc'))).toEqual(['Dejan', 'Ceca', 'Ana', 'Boris', 'Ema', 'Goran']);
-    expect(names(sortMembers(all, 'validUntil', 'desc'))).toEqual(['Ana', 'Ceca', 'Dejan', 'Boris', 'Ema', 'Goran']);
+    expect(names(sortMembers(all, 'validUntil', 'asc'))).toEqual(['Ceca', 'Ana', 'Boris', 'Dejan', 'Ema', 'Goran']);
+    expect(names(sortMembers(all, 'validUntil', 'desc'))).toEqual(['Ana', 'Ceca', 'Boris', 'Dejan', 'Ema', 'Goran']);
   });
 
   it('sorts by debt, members without debt last in both directions', () => {

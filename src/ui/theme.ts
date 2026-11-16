@@ -75,7 +75,7 @@ export const statusColor: Record<MemberStatusKind, string> = {
   placeno: colors.paid,
   duguje: colors.owes,
   istice_uskoro: colors.soon,
-  isteklo: colors.expired,
+  pauza: colors.expired,
   bez_clanarine: colors.expired,
 };
 
