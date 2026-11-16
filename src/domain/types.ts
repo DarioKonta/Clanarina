@@ -22,6 +22,21 @@ export interface Member {
   deleted: boolean;
 }
 
+/**
+ * A stretch of time a member is billed for. Months run from `startDate`;
+ * `endDate` is the pause date (first day not billed), null while running.
+ */
+export interface Segment {
+  id: string;
+  memberId: string;
+  startDate: DateKey;
+  endDate: DateKey | null;
+  createdAt: IsoTimestamp;
+  updatedAt: IsoTimestamp;
+  deleted: boolean;
+}
+
+/** A payment covering `months` months from `periodStart` (a month of the member's grid). */
 export interface Membership {
   id: string;
   memberId: string;
@@ -30,7 +45,7 @@ export interface Membership {
   periodEnd: DateKey;
   /** Amount in RSD (whole dinars). */
   amount: number;
-  /** Date the money was received. `null` = not paid yet (delayed payment). */
+  /** Date the money was received. Always set for payments made by this version. */
   paidAt: DateKey | null;
   note: string | null;
   createdAt: IsoTimestamp;
@@ -38,13 +53,12 @@ export interface Membership {
   deleted: boolean;
 }
 
-export type MembershipStatus = 'placeno' | 'duguje' | 'predstojece';
-
 export type MemberStatus =
   | { kind: 'duguje'; debt: number; since: DateKey; unpaidCount: number }
   | { kind: 'istice_uskoro'; until: DateKey; daysLeft: number }
   | { kind: 'placeno'; until: DateKey }
-  | { kind: 'isteklo'; lastEnd: DateKey }
+  /** Not billed right now; `resumesAt` = start of a future segment, if any. */
+  | { kind: 'pauza'; resumesAt: DateKey | null }
   | { kind: 'bez_clanarine' };
 
 export type MemberStatusKind = MemberStatus['kind'];
