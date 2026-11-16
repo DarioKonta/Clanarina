@@ -58,6 +58,16 @@ export function buildMonths(
   return slots.sort((a, b) => a.start.localeCompare(b.start));
 }
 
+/**
+ * Last day a payment of `months` months from the grid month `start` covers. Follows the member's
+ * grid within the same segment; past a pause it falls back to plain month math (as stored periodEnd).
+ */
+export function coveredUntil(slots: MonthSlot[], start: DateKey, months: number): DateKey {
+  const i = slots.findIndex((s) => s.start === start);
+  const last = i >= 0 ? slots[i + months - 1] : undefined;
+  return last && last.segmentId === slots[i].segmentId ? last.end : periodEnd(start, months);
+}
+
 /** The running segment (no pause date), if any. */
 export function openSegment(segments: Segment[]): Segment | undefined {
   return segments

@@ -112,7 +112,11 @@ export async function createMember(fields: MemberFields, startDate: DateKey): Pr
   return id;
 }
 
-export async function updateMember(id: string, fields: Partial<MemberFields & { active: boolean; deleted: boolean }>) {
+/** Updates a member. Archiving also pauses them; returns the paused segment id (for undo), else null. */
+export async function updateMember(
+  id: string,
+  fields: Partial<MemberFields & { active: boolean; deleted: boolean }>,
+): Promise<string | null> {
   const sets: string[] = [];
   const values: (string | number | null)[] = [];
   for (const [k, v] of Object.entries(fields)) {
@@ -120,7 +124,7 @@ export async function updateMember(id: string, fields: Partial<MemberFields & { 
     sets.push(`${k} = ?`);
     values.push(typeof v === 'boolean' ? (v ? 1 : 0) : v);
   }
-  if (sets.length === 0) return;
+  if (sets.length === 0) return null;
   await db.runAsync(
     `UPDATE members SET ${sets.join(', ')}, updatedAt = ?, dirty = 1 WHERE id = ?`,
     ...values,
@@ -128,8 +132,9 @@ export async function updateMember(id: string, fields: Partial<MemberFields & { 
     id,
   );
   // Archived members are not billed.
-  if (fields.active === false) await closeOpenSegment(id, todayKey());
+  const paused = fields.active === false ? await closeOpenSegment(id, todayKey()) : null;
   changed();
+  return paused;
 }
 
 /** Soft-deletes a member with their payments and segments. Returns those row ids, for undo. */

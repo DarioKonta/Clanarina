@@ -107,13 +107,15 @@ export default function MemberDetailScreen() {
               <Menu.Item
                 leadingIcon={member.active ? 'archive' : 'archive-arrow-up'}
                 title={member.active ? t.members.archive : t.members.unarchive}
-                onPress={() => {
+                onPress={async () => {
                   setMenuOpen(false);
                   const wasActive = member.active;
-                  void updateMember(member.id, { active: !wasActive });
-                  offerUndo(wasActive ? t.undo.archived : t.undo.unarchived, () =>
-                    updateMember(member.id, { active: wasActive }),
-                  );
+                  // Archiving pauses billing; undo restores both.
+                  const pausedId = await updateMember(member.id, { active: !wasActive });
+                  offerUndo(wasActive ? t.undo.archived : t.undo.unarchived, async () => {
+                    await updateMember(member.id, { active: wasActive });
+                    if (pausedId) await reopenSegment(pausedId);
+                  });
                 }}
               />
               <Menu.Item

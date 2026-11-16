@@ -1,4 +1,4 @@
-import { buildMonths, openSegment, paymentId, validateSegment } from './months';
+import { buildMonths, coveredUntil, openSegment, paymentId, validateSegment } from './months';
 import { pay, seg } from './testing';
 
 const starts = (slots: { start: string }[]) => slots.map((s) => s.start);
@@ -108,5 +108,18 @@ describe('segments', () => {
     expect(validateSegment(list, { startDate: '2027-01-10', endDate: '2027-02-01' })).toBeNull();
     expect(validateSegment([list[0]], { startDate: '2026-12-31', endDate: null })).toBe('overlap');
     expect(validateSegment([list[0]], { startDate: '2027-01-01', endDate: null })).toBeNull();
+  });
+});
+
+describe('coveredUntil', () => {
+  const segments = [seg({ startDate: '2026-12-01', endDate: '2027-01-01' }), seg({ startDate: '2027-02-15' })];
+  const slots = buildMonths(segments, [], 3000, '2027-03-01', 2);
+
+  test('follows the grid inside one segment', () => {
+    expect(coveredUntil(slots, '2027-02-15', 2)).toBe('2027-04-14');
+  });
+
+  test('does not jump into the next segment after a pause', () => {
+    expect(coveredUntil(slots, '2026-12-01', 2)).toBe('2027-01-31');
   });
 });

@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Button, Dialog, HelperText, Portal, SegmentedButtons, Text, TextInput } from 'react-native-paper';
-import { periodEnd, todayKey } from '@/domain/dates';
+import { todayKey } from '@/domain/dates';
 import { formatMoney, formatPeriod, fullName } from '@/domain/format';
-import type { MonthSlot } from '@/domain/months';
+import { coveredUntil, type MonthSlot } from '@/domain/months';
 import type { DateKey, Member } from '@/domain/types';
 import { parseAmount } from '@/domain/validation';
 import { payMonths, setPaymentDeleted } from '@/db/repo';
@@ -37,13 +37,6 @@ export async function recordPayment(
 /** "Uplata" in one tap: the given month, today, at the member's price. */
 export function quickPay(target: PaymentTarget): Promise<void> {
   return recordPayment(target.member.id, target.slot.start, 1, target.price, todayKey());
-}
-
-/** Last day covered when paying `months` months from `slot` (follows the member's grid). */
-function coveredUntil(target: PaymentTarget, months: number): DateKey {
-  const i = target.slots.findIndex((s) => s.start === target.slot.start);
-  const last = i >= 0 ? target.slots[i + months - 1] : undefined;
-  return last?.end ?? periodEnd(target.slot.start, months);
 }
 
 export function PaymentDialog({ target, onDismiss }: { target: PaymentTarget | null; onDismiss: () => void }) {
@@ -93,7 +86,7 @@ function PaymentForm({ target, onDone }: { target: PaymentTarget; onDone: () => 
         <View>
           <Text variant="bodyLarge">{fullName(target.member)}</Text>
           <Text variant="bodyMedium" style={styles.muted}>
-            {t.payment.covers}: {formatPeriod(target.slot.start, coveredUntil(target, months))}
+            {t.payment.covers}: {formatPeriod(target.slot.start, coveredUntil(target.slots, target.slot.start, months))}
           </Text>
         </View>
         <SegmentedButtons
