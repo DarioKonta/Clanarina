@@ -5,7 +5,8 @@ It's used by a few people and installed as an APK, not through the Play Store. S
 `SESSION_STATE.md` for current progress, and `AGENTS.md` for Expo-specific agent rules.
 
 > **Session rule:** read `SESSION_STATE.md` at the start of every session. Update it at the end with
-> what was done, any decisions, and the next step.
+> what was done, any decisions, and the next step. A Stop hook (`.claude/hooks/session-state-check.js`) reminds
+> Claude when files changed but this file wasn't updated.
 
 > **Expo SDK 58:** don't trust memory for Expo APIs. Check https://docs.expo.dev/llms.txt and the
 > versioned docs before using one. Always use `npx expo install <pkg>`, never a plain `npm install`, for RN/Expo packages.
