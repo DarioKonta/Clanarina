@@ -1,9 +1,9 @@
 # Session State
 
-_Last updated: 2026-11-16_
+_Last updated: 2026-11-17_
 
 ## Current phase
-**Phase 2: in use, released through GitHub + Obtainium.** Latest release: **v1.2.0**. Branch `feature/automatic-months` (2026-11-16) is built, tested and checked in the emulator, but not merged or released. v1.0.x was tested on a real phone against a real Sheet; the v1.1.0 features have not been seen on a phone yet.
+**Phase 2: in use, released through GitHub + Obtainium.** Latest release: **v1.3.0** (automatic months, 2026-11-17). v1.0.x was tested on a real phone against a real Sheet; the v1.1.0 features have not been seen on a phone yet.
 
 ## Done
 - [x] Read the app idea and chose the stack and architecture (see `CLAUDE.md`)
@@ -79,7 +79,8 @@ _Last updated: 2026-11-16_
 - Emulator note: this PC runs the AVD very slowly (load average up to 140, system "isn't responding" dialogs, window service restarted once). `npm run android` timed out on ADB right after boot; what worked: start the emulator, wait for boot, `adb reverse tcp:8081 tcp:8081`, `npx expo start --localhost`, then `adb shell am start -a android.intent.action.VIEW -d exp://127.0.0.1:8081 host.exp.exponent`.
 - [x] 2026-11-16: Claude Code Stop hook (`.claude/settings.json` → `.claude/hooks/session-state-check.js`): when a turn leaves changed files or unpushed commits without touching SESSION_STATE.md, Claude is asked once to update it.
 - [x] 2026-11-16: `feature/automatic-months` pushed and merged into `main`.
-- [ ] **Next:** bump to v1.3.0, bump to v1.3.0, update Code.gs in the Sheet (schema 4) and test a sync, start fresh (new Sheet or delete old tabs; clear app data on phones), release.
+- [x] 2026-11-17: **v1.3.0 released** (EAS build 60b65935): https://github.com/DarioKonta/Clanarina/releases/tag/v1.3.0. Release notes tell users to update Code.gs (schema 4), delete old tabs and clear app data first.
+- [ ] **Next (user):** paste new Code.gs → Deploy new version → run `setup` → browser check shows `schema:4`; delete old Sheet tabs (or new Sheet); update phones via Obtainium, clear app data, reconnect in Podešavanja; test a real sync with segments/payments.
 
 ## Open questions
 - Grace days before a new month counts as owed? (Now: owed from day 1.)
