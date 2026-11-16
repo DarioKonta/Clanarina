@@ -194,14 +194,15 @@ export const t = {
     monthOwes: 'Duguje',
     monthUpcoming: 'Predstoji',
     monthPaid: 'Plaćeno',
+    partOfPayment: (amount: string, months: string) => `Deo uplate od ${amount} za ${months}`,
   },
   membership: {
     months: (n: number) => (n === 1 ? '1 mesec' : n < 5 ? `${n} meseca` : `${n} meseci`),
-    monthsShort: (n: number) => `${n} m`,
   },
   payment: {
     title: 'Uplata',
     covers: 'Plaća za',
+    monthsLabel: 'Broj meseci',
     date: 'Datum uplate',
     amount: 'Iznos (RSD)',
     confirm: 'Potvrdi uplatu',

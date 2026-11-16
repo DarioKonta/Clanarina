@@ -3,7 +3,7 @@
 _Last updated: 2026-11-16_
 
 ## Current phase
-**Phase 2: in use, released through GitHub + Obtainium.** Latest release: **v1.2.0**. Branch `feature/automatic-months` (2026-11-16) is built and tested but not merged or released. v1.0.x was tested on a real phone against a real Sheet; the v1.1.0 features have not been seen on a phone yet.
+**Phase 2: in use, released through GitHub + Obtainium.** Latest release: **v1.2.0**. Branch `feature/automatic-months` (2026-11-16) is built, tested and checked in the emulator, but not merged or released. v1.0.x was tested on a real phone against a real Sheet; the v1.1.0 features have not been seen on a phone yet.
 
 ## Done
 - [x] Read the app idea and chose the stack and architecture (see `CLAUDE.md`)
@@ -75,7 +75,9 @@ _Last updated: 2026-11-16_
 - [x] 2026-11-13 (not committed/released yet): discipline-neutral texts (reminder SMS, about, guide, docs); new icon (calendar + check, `scripts/make_icons.py`); Code.gs schema 3 adds the read-only **Pregled članova** tab for trainers (color-coded status, "plaćeno do", plain explanation, totals; refreshed after push, on open, after hand edits, daily trigger from `setup`, menu Članarina → Osveži pregled). Parity test `src/domain/sheetOverview.test.ts` (80 tests pass)
 
 - [x] 2026-11-16, branch `feature/automatic-months`: **automatic months.** The trainer adds a member once with a "Početak" date; months are derived (never stored) from billing segments (`segments` table / sheet tab Periodi) + payments (`memberships`). One-tap Uplata (+ undo), long press = dialog (1/2/3/6/12 months, amount, date). Pauziraj (one tap, today) / Nastavi (date picker). History per segment with ✎ to edit start/pause dates. No refunds: a started month counts in full. New status `pauza`, `isteklo` removed. Code.gs schema 4 (`MIN_SERVER_SCHEMA = 4`), app sends `defaultAmount`. Spec: `docs/superpowers/specs/2026-11-16-automatic-months-design.md`, plan: `docs/superpowers/plans/2026-11-16-automatic-months.md`. 94 tests, tsc, eslint clean.
-- [ ] **Next:** try the branch in Expo Go / emulator (`npm run android`), then merge, bump to v1.3.0, update Code.gs in the Sheet (schema 4), start fresh (new Sheet or delete old tabs; clear app data on phones), release.
+- [x] 2026-11-16: clicked through the branch in the emulator (Expo Go): new member with Početak 15 Sep → owes 3 months (9.000), one-tap Uplata pays the oldest month + undo snackbar, long press → dialog (2 months = 15 okt – 14 dec, 6.000), Pauziraj → "pauza od 16. nov" with paid months kept, Nastavi from 15 Feb 2027 → new period + "Pauza" gap row, ✎ edit dialog shows the overlap error. Fixed from that run: month chips overflowed the dialog (now plain 1/2/3/6/12 under "Broj meseci"), months of a multi-month payment now say "Deo uplate od 6.000 RSD za 2 meseca". Not tried in the emulator: Dugovanja, Pregled, archive + undo, sync with a real Sheet (schema 4).
+- Emulator note: this PC runs the AVD very slowly (load average up to 140, system "isn't responding" dialogs, window service restarted once). `npm run android` timed out on ADB right after boot; what worked: start the emulator, wait for boot, `adb reverse tcp:8081 tcp:8081`, `npx expo start --localhost`, then `adb shell am start -a android.intent.action.VIEW -d exp://127.0.0.1:8081 host.exp.exponent`.
+- [ ] **Next:** merge `feature/automatic-months`, bump to v1.3.0, update Code.gs in the Sheet (schema 4) and test a sync, start fresh (new Sheet or delete old tabs; clear app data on phones), release.
 
 ## Open questions
 - Grace days before a new month counts as owed? (Now: owed from day 1.)

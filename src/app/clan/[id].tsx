@@ -314,8 +314,9 @@ function MonthRow({ slot, onPay }: { slot: MonthSlot; onPay: () => void }) {
       <View style={{ flex: 1, gap: 4 }}>
         <Text variant="titleSmall">{formatPeriod(slot.start, slot.end)}</Text>
         <Text variant="bodySmall" style={styles.muted}>
-          {formatMoney(slot.amount)}
-          {payment && payment.months > 1 ? ` · ${t.membership.months(payment.months)}` : ''}
+          {payment && payment.months > 1
+            ? t.member.partOfPayment(formatMoney(payment.amount), t.membership.months(payment.months))
+            : formatMoney(slot.amount)}
           {payment?.paidAt ? ` · ${t.member.paidOn(formatDate(payment.paidAt))}` : ''}
         </Text>
         <Pill color={color} label={label} />

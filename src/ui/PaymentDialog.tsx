@@ -89,11 +89,17 @@ function PaymentForm({ target, onDone }: { target: PaymentTarget; onDone: () => 
             {t.payment.covers}: {formatPeriod(target.slot.start, coveredUntil(target.slots, target.slot.start, months))}
           </Text>
         </View>
-        <SegmentedButtons
-          value={String(months)}
-          onValueChange={(v) => pickMonths(Number(v))}
-          buttons={MONTH_OPTIONS.map((n) => ({ value: String(n), label: t.membership.monthsShort(n) }))}
-        />
+        <View style={{ gap: 6 }}>
+          <Text variant="labelLarge" style={styles.muted}>
+            {t.payment.monthsLabel}
+          </Text>
+          {/* Plain numbers: five "N m" labels don't fit in a dialog on a phone. */}
+          <SegmentedButtons
+            value={String(months)}
+            onValueChange={(v) => pickMonths(Number(v))}
+            buttons={MONTH_OPTIONS.map((n) => ({ value: String(n), label: String(n), style: styles.seg }))}
+          />
+        </View>
         <DateField label={t.payment.date} value={date} onChange={setDate} />
         <View>
           <TextInput
@@ -122,4 +128,5 @@ function PaymentForm({ target, onDone }: { target: PaymentTarget; onDone: () => 
 const styles = StyleSheet.create({
   content: { gap: 12 },
   muted: { opacity: 0.7 },
+  seg: { minWidth: 0 },
 });
