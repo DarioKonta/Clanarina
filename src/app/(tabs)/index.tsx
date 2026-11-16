@@ -6,14 +6,14 @@ import { DEFAULT_LIST_PREFS, getListPrefs, setListPrefs, type ListPrefs } from '
 import { isBirthday, todayKey } from '@/domain/dates';
 import { fullName, initials, searchKey } from '@/domain/format';
 import { DEFAULT_SORT_DIR, SORT_KEYS, sortMembers, type SortKey } from '@/domain/sort';
-import { oldestUnpaid } from '@/domain/status';
-import type { Member, Membership, MemberStatusKind } from '@/domain/types';
+import { nextToPay, oldestOwed } from '@/domain/status';
+import type { MemberStatusKind } from '@/domain/types';
 import { useMembersWithStatus, type MemberWithStatus } from '@/hooks/useData';
 import { t } from '@/i18n/sr';
 import { EmptyState } from '@/ui/EmptyState';
 import { MemberTable } from '@/ui/MemberTable';
 import { OfflineBanner } from '@/ui/OfflineBanner';
-import { PaymentDialog } from '@/ui/PaymentDialog';
+import { PaymentDialog, quickPay, type PaymentTarget } from '@/ui/PaymentDialog';
 import { StatusChip } from '@/ui/StatusChip';
 import { colors, statusColor, useAccent } from '@/ui/theme';
 
@@ -24,7 +24,7 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: 'duguje', label: t.filters.owes },
   { key: 'istice_uskoro', label: t.filters.soon },
   { key: 'placeno', label: t.filters.paid },
-  { key: 'isteklo', label: t.filters.expired },
+  { key: 'pauza', label: t.filters.paused },
   { key: 'archived', label: t.filters.archived },
 ];
 
@@ -33,7 +33,7 @@ export default function MembersScreen() {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [group, setGroup] = useState<string | null>(null);
-  const [paying, setPaying] = useState<{ member: Member; membership: Membership } | null>(null);
+  const [paying, setPaying] = useState<PaymentTarget | null>(null);
   const [prefs, setPrefs] = useState<ListPrefs>(DEFAULT_LIST_PREFS);
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
   const accent = useAccent();
@@ -63,8 +63,8 @@ export default function MembersScreen() {
         if (member.active) return false;
       } else {
         if (!member.active) return false;
-        if (filter === 'isteklo' && !(status.kind === 'isteklo' || status.kind === 'bez_clanarine')) return false;
-        if (filter !== 'all' && filter !== 'isteklo' && status.kind !== filter) return false;
+        if (filter === 'pauza' && !(status.kind === 'pauza' || status.kind === 'bez_clanarine')) return false;
+        if (filter !== 'all' && filter !== 'pauza' && status.kind !== filter) return false;
       }
       if (group && member.groupName?.trim() !== group) return false;
       if (!q) return true;
@@ -74,10 +74,15 @@ export default function MembersScreen() {
   }, [data, query, filter, group, prefs.sortKey, prefs.sortDir]);
   const groups = data?.groups ?? [];
 
+  // Tap: pay the oldest owed month right away (with undo). Nothing owed: open the dialog to pay ahead.
   const onQuickPay = (item: MemberWithStatus) => {
-    const unpaid = oldestUnpaid(item.memberships, todayKey());
-    if (unpaid) setPaying({ member: item.member, membership: unpaid });
-    else router.push({ pathname: '/clanarina/nova', params: { memberId: item.member.id, paid: '1' } });
+    const owed = oldestOwed(item.slots);
+    if (owed) void quickPay({ ...item, slot: owed });
+    else openPayment(item);
+  };
+  const openPayment = (item: MemberWithStatus) => {
+    const slot = nextToPay(item.slots);
+    if (slot) setPaying({ ...item, slot });
   };
 
   const hasMembers = (data?.members.length ?? 0) > 0;
@@ -189,7 +194,9 @@ export default function MembersScreen() {
           data={items}
           keyExtractor={(i) => i.member.id}
           contentContainerStyle={styles.list}
-          renderItem={({ item }) => <MemberCard item={item} onQuickPay={() => onQuickPay(item)} />}
+          renderItem={({ item }) => (
+            <MemberCard item={item} onQuickPay={() => onQuickPay(item)} onLongPay={() => openPayment(item)} />
+          )}
           ListEmptyComponent={empty}
         />
       )}
@@ -202,16 +209,20 @@ export default function MembersScreen() {
         onPress={() => router.push('/clan/uredi')}
       />
 
-      <PaymentDialog
-        member={paying?.member ?? null}
-        membership={paying?.membership ?? null}
-        onDismiss={() => setPaying(null)}
-      />
+      <PaymentDialog target={paying} onDismiss={() => setPaying(null)} />
     </View>
   );
 }
 
-function MemberCard({ item, onQuickPay }: { item: MemberWithStatus; onQuickPay: () => void }) {
+function MemberCard({
+  item,
+  onQuickPay,
+  onLongPay,
+}: {
+  item: MemberWithStatus;
+  onQuickPay: () => void;
+  onLongPay: () => void;
+}) {
   const { member, status } = item;
   const accent = statusColor[status.kind];
   return (
@@ -238,11 +249,12 @@ function MemberCard({ item, onQuickPay }: { item: MemberWithStatus; onQuickPay: 
         ) : null}
         <StatusChip status={status} />
       </View>
-      {member.active ? (
+      {member.active && nextToPay(item.slots) ? (
         <Button
           mode={status.kind === 'duguje' ? 'contained' : 'contained-tonal'}
           compact
           onPress={onQuickPay}
+          onLongPress={onLongPay}
           icon="cash"
           contentStyle={styles.payBtn}
         >

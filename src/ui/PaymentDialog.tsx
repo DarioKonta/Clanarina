@@ -1,48 +1,75 @@
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { Button, Dialog, HelperText, Portal, Text, TextInput } from 'react-native-paper';
-import { todayKey } from '@/domain/dates';
-import { formatPeriod, fullName } from '@/domain/format';
-import type { Member, Membership } from '@/domain/types';
+import { Button, Dialog, HelperText, Portal, SegmentedButtons, Text, TextInput } from 'react-native-paper';
+import { periodEnd, todayKey } from '@/domain/dates';
+import { formatMoney, formatPeriod, fullName } from '@/domain/format';
+import type { MonthSlot } from '@/domain/months';
+import type { DateKey, Member } from '@/domain/types';
 import { parseAmount } from '@/domain/validation';
-import { markPaid, setPayment } from '@/db/repo';
+import { payMonths, setPaymentDeleted } from '@/db/repo';
 import { t } from '@/i18n/sr';
 import { offerUndo } from '@/state/store';
 import { DateField } from './DateField';
 
-interface Props {
-  member: Member | null;
-  membership: Membership | null;
-  onDismiss: () => void;
+const MONTH_OPTIONS = [1, 2, 3, 6, 12];
+
+export interface PaymentTarget {
+  member: Member;
+  /** The member's whole month grid, to show which months a payment covers. */
+  slots: MonthSlot[];
+  /** First month the payment is for. */
+  slot: MonthSlot;
+  price: number;
 }
 
-/** "Evidentiraj uplatu" — records a delayed payment without moving the period. */
-export function PaymentDialog({ member, membership, onDismiss }: Props) {
+/** Records a payment for one or more months starting at `slot`, with undo. */
+export async function recordPayment(
+  memberId: string,
+  start: DateKey,
+  months: number,
+  amount: number,
+  paidAt: DateKey,
+): Promise<void> {
+  const id = await payMonths(memberId, start, months, amount, paidAt);
+  offerUndo(t.undo.paid, () => setPaymentDeleted(id, true));
+}
+
+/** "Uplata" in one tap: the given month, today, at the member's price. */
+export function quickPay(target: PaymentTarget): Promise<void> {
+  return recordPayment(target.member.id, target.slot.start, 1, target.price, todayKey());
+}
+
+/** Last day covered when paying `months` months from `slot` (follows the member's grid). */
+function coveredUntil(target: PaymentTarget, months: number): DateKey {
+  const i = target.slots.findIndex((s) => s.start === target.slot.start);
+  const last = i >= 0 ? target.slots[i + months - 1] : undefined;
+  return last?.end ?? periodEnd(target.slot.start, months);
+}
+
+export function PaymentDialog({ target, onDismiss }: { target: PaymentTarget | null; onDismiss: () => void }) {
   return (
     <Portal>
-      <Dialog visible={!!membership} onDismiss={onDismiss}>
-        {membership ? (
-          // Keyed so the form resets for each membership.
-          <PaymentForm key={membership.id} member={member} membership={membership} onDone={onDismiss} />
+      <Dialog visible={!!target} onDismiss={onDismiss}>
+        {target ? (
+          // Keyed so the form resets for each month.
+          <PaymentForm key={target.member.id + target.slot.start} target={target} onDone={onDismiss} />
         ) : null}
       </Dialog>
     </Portal>
   );
 }
 
-function PaymentForm({
-  member,
-  membership,
-  onDone,
-}: {
-  member: Member | null;
-  membership: Membership;
-  onDone: () => void;
-}) {
+function PaymentForm({ target, onDone }: { target: PaymentTarget; onDone: () => void }) {
+  const [months, setMonths] = useState(1);
   const [date, setDate] = useState(todayKey);
-  const [amount, setAmount] = useState(String(membership.amount));
+  const [amount, setAmount] = useState(String(target.price));
   const [error, setError] = useState<string | undefined>();
   const [saving, setSaving] = useState(false);
+
+  const pickMonths = (n: number) => {
+    setMonths(n);
+    setAmount(String(target.price * n));
+  };
 
   const confirm = async () => {
     const value = parseAmount(amount);
@@ -52,9 +79,7 @@ function PaymentForm({
     }
     setSaving(true);
     try {
-      await markPaid(membership.id, date, value);
-      const { id, amount: before } = membership;
-      offerUndo(t.undo.paid, () => setPayment(id, null, before));
+      await recordPayment(target.member.id, target.slot.start, months, value, date);
       onDone();
     } finally {
       setSaving(false);
@@ -66,11 +91,16 @@ function PaymentForm({
       <Dialog.Title>{t.payment.title}</Dialog.Title>
       <Dialog.Content style={styles.content}>
         <View>
-          {member ? <Text variant="bodyLarge">{fullName(member)}</Text> : null}
+          <Text variant="bodyLarge">{fullName(target.member)}</Text>
           <Text variant="bodyMedium" style={styles.muted}>
-            {formatPeriod(membership.periodStart, membership.periodEnd)}
+            {t.payment.covers}: {formatPeriod(target.slot.start, coveredUntil(target, months))}
           </Text>
         </View>
+        <SegmentedButtons
+          value={String(months)}
+          onValueChange={(v) => pickMonths(Number(v))}
+          buttons={MONTH_OPTIONS.map((n) => ({ value: String(n), label: t.membership.monthsShort(n) }))}
+        />
         <DateField label={t.payment.date} value={date} onChange={setDate} />
         <View>
           <TextInput
@@ -81,7 +111,9 @@ function PaymentForm({
             keyboardType="number-pad"
             error={!!error}
           />
-          {error ? <HelperText type="error">{error}</HelperText> : null}
+          <HelperText type={error ? 'error' : 'info'}>
+            {error ?? `${formatMoney(target.price)} × ${t.membership.months(months)} · ${t.payment.hint}`}
+          </HelperText>
         </View>
       </Dialog.Content>
       <Dialog.Actions>

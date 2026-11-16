@@ -1,35 +1,38 @@
 import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { Button, Text } from 'react-native-paper';
 import { todayKey } from '@/domain/dates';
 import { formatDayMonth, formatMoney, fullName } from '@/domain/format';
-import { collectDebts, groupByMember, oldestUnpaid } from '@/domain/status';
-import type { Member, Membership } from '@/domain/types';
+import { collectDebts, groupByMember, oldestOwed } from '@/domain/status';
+import type { Member } from '@/domain/types';
 import { useMembersWithStatus } from '@/hooks/useData';
 import { t } from '@/i18n/sr';
 import { EmptyState } from '@/ui/EmptyState';
 import { OfflineBanner } from '@/ui/OfflineBanner';
-import { PaymentDialog } from '@/ui/PaymentDialog';
+import { quickPay } from '@/ui/PaymentDialog';
 import { ReminderButton } from '@/ui/ReminderButton';
 import { colors } from '@/ui/theme';
 
 export default function DebtsScreen() {
   const { data, loading } = useMembersWithStatus();
-  const [paying, setPaying] = useState<{ member: Member; membership: Membership } | null>(null);
+  const debts = useMemo(
+    () =>
+      collectDebts(
+        (data?.members ?? []).filter((m) => m.active),
+        groupByMember(data?.segments ?? []),
+        groupByMember(data?.payments ?? []),
+        data?.defaultAmount ?? 0,
+        todayKey(),
+      ),
+    [data],
+  );
 
-  const { debts, byMember } = useMemo(() => {
-    const members = (data?.members ?? []).filter((m) => m.active);
-    const memberships = data?.memberships ?? [];
-    return {
-      debts: collectDebts(members, memberships, todayKey()),
-      byMember: groupByMember(memberships),
-    };
-  }, [data]);
-
+  // One tap pays the oldest owed month (undo in the snackbar).
   const pay = (member: Member) => {
-    const m = oldestUnpaid(byMember.get(member.id) ?? [], todayKey());
-    if (m) setPaying({ member, membership: m });
+    const item = data?.items.find((i) => i.member.id === member.id);
+    const slot = item ? oldestOwed(item.slots) : undefined;
+    if (item && slot) void quickPay({ ...item, slot });
   };
 
   return (
@@ -88,11 +91,6 @@ export default function DebtsScreen() {
         ListEmptyComponent={
           loading ? undefined : <EmptyState icon="check-decagram" title={t.debts.emptyTitle} text={t.debts.emptyText} />
         }
-      />
-      <PaymentDialog
-        member={paying?.member ?? null}
-        membership={paying?.membership ?? null}
-        onDismiss={() => setPaying(null)}
       />
     </View>
   );

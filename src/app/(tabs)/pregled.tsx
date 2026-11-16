@@ -3,7 +3,6 @@ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { IconButton, Text } from 'react-native-paper';
 import { monthOf, shiftMonth, todayKey } from '@/domain/dates';
 import { formatMoney, formatMonth, formatMonthShort } from '@/domain/format';
-import { collectDebts } from '@/domain/status';
 import { collectedByMonth, monthSummary } from '@/domain/summary';
 import { useMembersWithStatus } from '@/hooks/useData';
 import { t } from '@/i18n/sr';
@@ -19,13 +18,16 @@ export default function OverviewScreen() {
   const [month, setMonth] = useState(current);
 
   const { summary, chart, totalDebt, activeCount } = useMemo(() => {
+    const items = data?.items ?? [];
     const members = data?.members ?? [];
-    const memberships = data?.memberships ?? [];
+    const payments = data?.payments ?? [];
     return {
-      summary: monthSummary(members, memberships, month),
+      summary: monthSummary(members, new Map(items.map((i) => [i.member.id, i.slots])), payments, month),
       // Chart ends at the later of the selected and current month so the selection is visible.
-      chart: collectedByMonth(memberships, month > current ? month : current, CHART_MONTHS),
-      totalDebt: collectDebts(members.filter((m) => m.active), memberships, todayKey()).total,
+      chart: collectedByMonth(payments, month > current ? month : current, CHART_MONTHS),
+      totalDebt: items
+        .filter((i) => i.member.active)
+        .reduce((sum, i) => sum + (i.status.kind === 'duguje' ? i.status.debt : 0), 0),
       activeCount: members.filter((m) => m.active).length,
     };
   }, [data, month, current]);
